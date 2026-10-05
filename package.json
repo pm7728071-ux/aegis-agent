@@ -1,0 +1,15 @@
+{
+  "name": "aegis-agent",
+  "version": "1.0.0",
+  "description": "AI Agent Transaction Governance and Security Firewall Protocol",
+  "main": "engine.js",
+  "scripts": {
+    "start": "node engine.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
