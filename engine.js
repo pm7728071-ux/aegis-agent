@@ -1,8 +1,8 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const app = express();
-const PORT = 3000;
+const app = Pattern = express();
+const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 const DB_FILE = path.join(__dirname, 'database.json');
@@ -14,7 +14,6 @@ const BLACKLISTED_CRYPTO_WALLETS = [
     "0x71C7656EC7ab88b098defB751B7401B5f6d8976F"
 ];
 
-// High-Speed Memory Storage to Track Agent Request Frequencies
 const agentRequestHistory = {};
 
 if (!fs.existsSync(DB_FILE)) {
@@ -36,44 +35,33 @@ app.post('/api/verify-transaction', (req, res) => {
 
     console.log(`[AegisAgent Engine] Intercepting request from: ${agentId}`);
 
-    // CIRCUIT BREAKER ALGORITHM (Rate Limiting Filter)
     const now = Date.now();
     if (!agentRequestHistory[agentId]) {
         agentRequestHistory[agentId] = [];
     }
 
-    // Filter out requests older than 5 seconds
     agentRequestHistory[agentId] = agentRequestHistory[agentId].filter(timestamp => now - timestamp < 5000);
-    
-    // Add current request timestamp to history log
     agentRequestHistory[agentId].push(now);
 
-    // CRITICAL TRIGGER: If agent triggers more than 3 requests in 5 seconds, trip the breaker!
     if (agentRequestHistory[agentId].length > 3) {
         auditResult = {
             agentId, requestedAmount: amount, currency, amountInKES: Math.round(amountInKES),
             status: "BLOCKED", timestamp: new Date().toLocaleTimeString(),
             reason: "CRITICAL BREAKER TRIPPED: Agent activity spiking exponentially! High-frequency loop attack frozen for system protection."
         };
-    }
-    // CHECK 2: Fraudulent Crypto Wallet Detection
-    else if (cryptoWallet && BLACKLISTED_CRYPTO_WALLETS.includes(cryptoWallet)) {
+    } else if (cryptoWallet && BLACKLISTED_CRYPTO_WALLETS.includes(cryptoWallet)) {
         auditResult = {
             agentId, requestedAmount: amount, currency, amountInKES: Math.round(amountInKES),
             status: "BLOCKED", timestamp: new Date().toLocaleTimeString(),
             reason: `CRITICAL BLOCK: Malicious Web3 Crypto Wallet Detected (${cryptoWallet.substring(0,6)}...)!`
         };
-    } 
-    // CHECK 3: Financial Threshold Guardrail
-    else if (amountInKES > db.config.maxAmountLimitKES) {
+    } else if (amountInKES > db.config.maxAmountLimitKES) {
         auditResult = {
             agentId, requestedAmount: amount, currency, amountInKES: Math.round(amountInKES),
             status: "BLOCKED", timestamp: new Date().toLocaleTimeString(),
             reason: `Violation: Request of ${Math.round(amountInKES)} KES breaches ceiling of ${db.config.maxAmountLimitKES} KES.`
         };
-    } 
-    // APPROVED PARAMETERS
-    else {
+    } else {
         auditResult = {
             agentId, requestedAmount: amount, currency, amountInKES: Math.round(amountInKES),
             status: "APPROVED", timestamp: new Date().toLocaleTimeString(),
@@ -180,4 +168,4 @@ app.get('/', (_req, res) => {
     `);
 });
 
-app.listen(PORT, () => console.log('\n[AegisAgent Phase-1 Protected Engine Online]\n👉 View Dashboard at: http://localhost:3000'));
+app.listen(PORT, () => console.log('Server live.'));
