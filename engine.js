@@ -1,86 +1,85 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const app = Pattern = express();
-const PORT = process.env.PORT || 3000;
+const app = express();
+const PORT = 3000;
 
 app.use(express.json());
+
 const DB_FILE = path.join(__dirname, 'database.json');
-const TOLL_RATE_USD = 0.002; 
+const REGIONAL_TOLL_RATE_KSH = 1.00; 
 const KSH_EXCHANGE_RATE = 129.50;
 
-const BLACKLISTED_CRYPTO_WALLETS = [
-    "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
-    "0x71C7656EC7ab88b098defB751B7401B5f6d8976F"
-];
+const BLACKLISTED_MPESA_NUMBERS = ["254712345678", "254799999999"];
+const multiAgentRequestHistory = {};
 
-const agentRequestHistory = {};
+function getDefaultDB() {
+    return { 
+        config: { maxAmountLimitKES: 1300 }, 
+        metrics: { totalTransactionsAudited: 0, totalRevenueKSH: 0 },
+        logs: []
+    };
+}
 
 if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify({ 
-        config: { maxAmountLimitKES: 1300 }, 
-        metrics: { totalTransactionsAudited: 0, totalRevenueUSD: 0 },
-        logs: []
-    }, null, 2));
+    fs.writeFileSync(DB_FILE, JSON.stringify(getDefaultDB(), null, 2));
 }
 
 function readDB() { return JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); }
 function writeDB(data) { fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2)); }
 
 app.post('/api/verify-transaction', (req, res) => {
-    const { agentId, amount, currency, cryptoWallet } = req.body;
+    const { agentId, amount, currency, mpesaRecipient } = req.body;
     const db = readDB();
-    let auditResult = {};
+    let o = {};
     let amountInKES = currency === "USD" ? amount * KSH_EXCHANGE_RATE : amount;
-
-    console.log(`[AegisAgent Engine] Intercepting request from: ${agentId}`);
+    const activeAgent = agentId || "Unknown_Autonomous_Bot";
 
     const now = Date.now();
-    if (!agentRequestHistory[agentId]) {
-        agentRequestHistory[agentId] = [];
-    }
+    if (!multiAgentRequestHistory[activeAgent]) multiAgentRequestHistory[activeAgent] = [];
+    multiAgentRequestHistory[activeAgent] = multiAgentRequestHistory[activeAgent].filter(t => now - t < 5000);
+    multiAgentRequestHistory[activeAgent].push(now);
 
-    agentRequestHistory[agentId] = agentRequestHistory[agentId].filter(timestamp => now - timestamp < 5000);
-    agentRequestHistory[agentId].push(now);
-
-    if (agentRequestHistory[agentId].length > 3) {
-        auditResult = {
-            agentId, requestedAmount: amount, currency, amountInKES: Math.round(amountInKES),
-            status: "BLOCKED", timestamp: new Date().toLocaleTimeString(),
-            reason: "CRITICAL BREAKER TRIPPED: Agent activity spiking exponentially! High-frequency loop attack frozen for system protection."
-        };
-    } else if (cryptoWallet && BLACKLISTED_CRYPTO_WALLETS.includes(cryptoWallet)) {
-        auditResult = {
-            agentId, requestedAmount: amount, currency, amountInKES: Math.round(amountInKES),
-            status: "BLOCKED", timestamp: new Date().toLocaleTimeString(),
-            reason: `CRITICAL BLOCK: Malicious Web3 Crypto Wallet Detected (${cryptoWallet.substring(0,6)}...)!`
-        };
+    if (multiAgentRequestHistory[activeAgent].length > 3) {
+        o = { agentId: activeAgent, requestedAmount: amount, currency, amountInKES: Math.round(amountInKES), status: "BLOCKED", timestamp: new Date().toLocaleTimeString(), reason: "CRITICAL CIRCUIT BREAKER: Velocity threshold exceeded! Isolated bot frozen." };
+    } else if (mpesaRecipient && BLACKLISTED_MPESA_NUMBERS.includes(mpesaRecipient)) {
+        o = { agentId: activeAgent, requestedAmount: amount, currency, amountInKES: Math.round(amountInKES), status: "BLOCKED", timestamp: new Date().toLocaleTimeString(), reason: `M-Pesa Outbound Target (${mpesaRecipient}) matches profile on National Fraud Risk Registry!` };
     } else if (amountInKES > db.config.maxAmountLimitKES) {
-        auditResult = {
-            agentId, requestedAmount: amount, currency, amountInKES: Math.round(amountInKES),
-            status: "BLOCKED", timestamp: new Date().toLocaleTimeString(),
-            reason: `Violation: Request of ${Math.round(amountInKES)} KES breaches ceiling of ${db.config.maxAmountLimitKES} KES.`
-        };
+        o = { agentId: activeAgent, requestedAmount: amount, currency, amountInKES: Math.round(amountInKES), status: "BLOCKED", timestamp: new Date().toLocaleTimeString(), reason: `Guardrail Ceiling Breach: Request breaches threshold parameter limit of ${db.config.maxAmountLimitKES} KES.` };
     } else {
-        auditResult = {
-            agentId, requestedAmount: amount, currency, amountInKES: Math.round(amountInKES),
-            status: "APPROVED", timestamp: new Date().toLocaleTimeString(),
-            reason: "Transaction scales safely within authorized system thresholds."
-        };
+        o = { agentId: activeAgent, requestedAmount: amount, currency, amountInKES: Math.round(amountInKES), status: "APPROVED", timestamp: new Date().toLocaleTimeString(), reason: "Transaction metrics clear. Data packet scales safely within authorized system bounds." };
     }
 
-    auditResult.tollFeeUSD = TOLL_RATE_USD;
+    o.tollFeeKSH = REGIONAL_TOLL_RATE_KSH;
     db.metrics.totalTransactionsAudited += 1;
-    db.metrics.totalRevenueUSD += TOLL_RATE_USD;
-    db.logs.unshift(auditResult);
+    db.metrics.totalRevenueKSH += REGIONAL_TOLL_RATE_KSH;
+    db.logs.unshift(o);
     writeDB(db);
-    res.json(auditResult);
+    res.json(o);
+});
+
+// NATIVE BACKEND ROUTE TO CLEAN AUDIT MEMORY SAFELY
+app.post('/api/reset-logs', (_req, res) => {
+    const db = readDB();
+    db.logs = []; // Clears the list completely
+    writeDB(db);
+    res.json({ success: true });
+});
+
+app.get('/api/export-csv', (_req, res) => {
+    const db = readDB();
+    if (db.logs.length === 0) return res.status(400).send("No auditing evidence recorded inside ledger cache yet.");
+    const headers = "Timestamp,Agent Identifier,Payload Value,Currency,Converted KES,Status Flag,Notes\n";
+    const rows = db.logs.map(l => `"${l.timestamp}","${l.agentId}","${l.requestedAmount}","${l.currency}","${l.amountInKES}","${l.status}","${l.reason}"`).join("\n");
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename=AEGIS_MULTI_BOT_AUDIT_${Date.now()}.csv`);
+    res.status(200).send(headers + rows);
 });
 
 app.get('/api/metrics', (_req, res) => {
     const db = readDB();
-    const revUSD = db.metrics.totalRevenueUSD;
-    res.json({ totalTransactionsAudited: db.metrics.totalTransactionsAudited, totalRevenueUSD: revUSD.toFixed(4), totalRevenueKSH: (revUSD * KSH_EXCHANGE_RATE).toFixed(2) });
+    const revKSH = db.metrics.totalRevenueKSH;
+    res.json({ totalTransactionsAudited: db.metrics.totalTransactionsAudited, totalRevenueKSH: revKSH.toFixed(2), totalRevenueUSD: (revKSH / KSH_EXCHANGE_RATE).toFixed(4) });
 });
 app.get('/api/config', (_req, res) => res.json(readDB().config));
 app.get('/api/logs', (_req, res) => res.json(readDB().logs));
@@ -88,84 +87,9 @@ app.post('/api/config', (req, res) => {
     const db = readDB();
     db.config.maxAmountLimitKES = Number(req.body.maxAmountLimitKES);
     writeDB(db);
-    res.json({ success: true, updatedConfig: db.config });
+    res.json({ success: true });
 });
 
-app.get('/', (_req, res) => {
-    const db = readDB();
-    res.send(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8"><title>AegisAgent Dashboard</title>
-        <style>
-            body { font-family: system-ui, sans-serif; background-color: #0f172a; color: #f8fafc; padding: 40px; margin: 0; }
-            .container { max-width: 950px; margin: 0 auto; }
-            header { display: flex; justify-content: space-between; border-bottom: 2px solid #1e293b; padding-bottom: 20px; margin-bottom: 30px; }
-            h1 { color: #38bdf8; margin: 0; font-size: 26px; }
-            .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 30px; }
-            .card { background: #1e293b; border-radius: 12px; padding: 24px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3); }
-            .val { font-size: 32px; font-weight: bold; color: #38bdf8; margin-top: 8px; font-family: monospace; }
-            input { background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #fff; padding: 12px; font-size: 16px; width: 160px; margin-right: 12px; }
-            button { background: #0284c7; border: none; color: white; padding: 12px 24px; font-weight: 600; border-radius: 6px; cursor: pointer; }
-            table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-            th { text-align: left; background: #334155; padding: 12px; color: #cbd5e1; }
-            td { padding: 12px; border-bottom: 1px solid #334155; font-size: 14px; }
-            .status-APPROVED { color: #4ade80; font-weight: bold; }
-            .status-BLOCKED { color: #f87171; font-weight: bold; background: rgba(248,113,113,0.1); padding: 4px 8px; border-radius: 4px; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <header><h1>AEGIS//AGENT — SYSTEM CORE MONITOR</h1></header>
-            <div class="grid">
-                <div class="card"><div>Audited Bot Requests</div><div class="val" id="countVal">0</div></div>
-                <div class="card"><div>Toll Revenue (USD)</div><div class="val" id="revUSDVal">$0.0000</div></div>
-                <div class="card"><div>Yield (Kenyan Shilling)</div><div class="val" style="color:#4ade80;" id="revKSHVal">KSh 0.00</div></div>
-            </div>
-            <div class="card" style="margin-bottom:30px;">
-                <h2>Dynamic Guardrail Configuration</h2>
-                <input type="number" id="limitInput" value="\${db.config.maxAmountLimitKES}">
-                <button onclick="updateConfig()">Update System Rules</button>
-            </div>
-            <div class="card">
-                <h2>Real-Time Intercept Logs</h2>
-                <table>
-                    <thead><tr><th>Timestamp</th><th>Agent Identifier</th><th>Payload Value</th><th>Status Flag</th><th>Engine Verdict Notes</th></tr></thead>
-                    <tbody id="logBody"><tr><td colspan="5" style="text-align:center;">Awaiting network traffic...</td></tr></tbody>
-                </table>
-            </div>
-        </div>
-        <script>
-            function updateConfig() {
-                const limit = document.getElementById('limitInput').value;
-                fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ maxAmountLimitKES: limit }) }).then(() => alert('System parameters locked!'));
-            }
-            function refresh() {
-                fetch('/api/metrics').then(res => res.json()).then(m => {
-                    document.getElementById('countVal').innerText = m.totalTransactionsAudited;
-                    document.getElementById('revUSDVal').innerText = '$' + m.totalRevenueUSD;
-                    document.getElementById('revKSHVal').innerText = 'KSh ' + m.totalRevenueKSH;
-                });
-                fetch('/api/logs').then(res => res.json()).then(logs => {
-                    const tbody = document.getElementById('logBody');
-                    if(logs.length === 0) return;
-                    tbody.innerHTML = logs.map(log => \`
-                        <tr>
-                            <td>\${log.timestamp}</td>
-                            <td style="color:#38bdf8; font-family:monospace;">\${log.agentId}</td>
-                            <td>\${log.requestedAmount} \${log.currency} (\${log.amountInKES} KES)</td>
-                            <td><span class="status-\${log.status}">\${log.status}</span></td>
-                            <td style="color:#94a3b8; font-size:13px;">\${log.reason}</td>
-                        </tr>
-                    \`).join('');
-                });
-            }
-            setInterval(refresh, 2000); refresh();
-        </script>
-    </body>
-    </html>
-    `);
-});
+app.get('/', (_req, res) => { res.sendFile(path.join(__dirname, 'index.html')); });
 
-app.listen(PORT, () => console.log('Server live.'));
+app.listen(PORT, () => console.log('\n=======================================================\n🚀 [AEGISAGENT JUGGERNAUT MASTERPIECE LIVE]\n📊 Architectural Tier: Multi-Bot Scope Filter Core\n💰 Revenue Engine Model: Fixed 1.00 KSh Per Bot Task\n🧹 Memory Flush Engine: Online\n👉 Local Control Room Port Address: http://localhost:3000\n========================================================'));
