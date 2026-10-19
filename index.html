@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Aegis//Agent — Autonomous AI Security Proxy</title>
     <style>
-        /* No internet download required - Bulletproof fallback styles */
         body {
             background-color: #0b0f19;
             color: #ffffff;
@@ -76,10 +75,6 @@
             font-weight: bold;
             display: inline-block;
             margin-bottom: 40px;
-            transition: background-color 0.2s;
-        }
-        .btn:hover {
-            background-color: #1d4ed8;
         }
         .metrics-grid {
             display: grid;
@@ -92,10 +87,6 @@
             padding: 24px;
             border-radius: 12px;
             border: 1px solid #374151;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-        .card:hover {
-            transform: translateY(-2px);
         }
         .card-title {
             color: #9ca3af;
@@ -104,7 +95,6 @@
             font-weight: bold;
             display: block;
             margin-bottom: 8px;
-            letter-spacing: 0.05em;
         }
         .card-value {
             font-size: 32px;
@@ -117,7 +107,7 @@
 
         @keyframes pulse-eye {
             0% { opacity: 0.5; transform: scale(0.96); }
-            50% { opacity: 1; transform: scale(1.08); filter: drop-shadow(0 0 4px rgba(59, 130, 246, 0.5)); }
+            50% { opacity: 1; transform: scale(1.08); }
             100% { opacity: 0.5; transform: scale(0.96); }
         }
     </style>
@@ -125,11 +115,9 @@
 <body>
 
     <div class="container">
-        <!-- ALL SYSTEM CHANNELS ACTIVE BADGE -->
         <span class="badge">● ALL NETWORK GATES ACTIVE</span>
         <br>
         
-        <!-- DYNAMIC VISITOR EYE TRACKER -->
         <div class="visitor-widget">
             <span class="eye-icon">👁️</span>
             <span class="visitor-text">
@@ -137,17 +125,13 @@
             </span>
         </div>
         
-        <!-- MAIN HEADINGS -->
         <h1>AEGIS//AGENT SECURITY PROXY</h1>
-        
         <p>Autonomous transaction-level firewall for AI agents. Securing machine traffic across Web3 Crypto and M-Pesa channels in under 2 milliseconds.</p>
         
-        <!-- EXTERNAL SDK ROUTE LINK -->
         <a href="https://github.com" target="_blank" class="btn">
             View Open-Source SDK
         </a>
 
-        <!-- REAL-TIME CORE APPLICATION PANELS -->
         <div class="metrics-grid">
             <div class="card" style="border-color: #3b82f6;">
                 <span class="card-title">Audited Bot Tasks</span>
@@ -164,19 +148,15 @@
         </div>
     </div>
 
-    <!-- REFRESH RUNNER LOOP -->
     <script>
         async function refreshLiveMetrics() {
             try {
                 const response = await fetch('https://onrender.com');
                 const data = await response.json();
                 
-                // Update active visitors counter
                 if (data.activeConnections !== undefined) {
                     document.getElementById('live-visitors').innerText = data.activeConnections;
                 }
-                
-                // Update the metric boxes dynamically from the real server database
                 if (data.totalTasks !== undefined) {
                     document.getElementById('metric-tasks').innerText = data.totalTasks;
                 }
@@ -186,16 +166,12 @@
                 if (data.sovereignYieldUSD !== undefined) {
                     document.getElementById('metric-yield').innerText = "$" + Number(data.sovereignYieldUSD).toFixed(4);
                 }
-                
             } catch (error) {
                 console.log("Telemetry engine waiting for next data sync...");
             }
         }
 
-        // Poll the server every 3 seconds to keep metrics completely live
         setInterval(refreshLiveMetrics, 3000);
-        
-        // Run once immediately on load
         refreshLiveMetrics();
     </script>
 </body>
