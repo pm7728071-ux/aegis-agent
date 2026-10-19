@@ -3,132 +3,54 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aegis//Agent — Autonomous AI Security Proxy & Compliance Layer</title>
+    <title>Aegis//Agent — Autonomous AI Security Proxy</title>
     <script src="https://tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cloudflare.com">
     <style>
-        @import url('https://googleapis.com');
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #030712; }
-        .heading-font { font-family: 'Space Grotesk', sans-serif; }
-        .glow-effect { box-shadow: 0 0 40px -5px rgba(59, 130, 246, 0.2); }
+        body { background-color: #0b0f19; }
     </style>
 </head>
-<body class="text-gray-100 selection:bg-blue-500 selection:text-white overflow-x-hidden">
+<body class="text-white p-8">
 
-    <!-- HERO SECTION -->
-    <header class="relative min-h-screen flex flex-col justify-between items-center px-6 pt-8 pb-16 z-10">
-        <!-- Background Glow Orbs -->
-        <div class="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-blue-600/10 rounded-full blur-[120px] pointer-events-none -z-10"></div>
-        <div class="absolute bottom-10 left-10 w-[300px] h-[300px] bg-purple-600/10 rounded-full blur-[100px] pointer-events-none -z-10"></div>
-
-        <!-- Top Navigation -->
-        <nav class="w-full max-w-6xl flex justify-between items-center border-b border-gray-800/60 pb-6">
-            <div class="flex items-center space-x-3">
-                <div class="h-9 w-9 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center font-bold tracking-tighter text-white text-lg heading-font shadow-lg shadow-blue-500/20">Æ</div>
-                <span class="text-xl font-bold tracking-tight heading-font bg-clip-text text-transparent bg-gradient-to-r from-white via-gray-200 to-gray-400">AEGIS//AGENT</span>
-            </div>
-            <div class="flex items-center space-x-6 text-sm">
-                <span class="flex items-center space-x-2 text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full font-medium tracking-wide text-xs border border-emerald-500/20">
-                    <span class="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                    <span>ALL NETWORK GATES ACTIVE</span>
-                </span>
-            </div>
-        </nav>
-
-        <!-- Main Pitch Content -->
-        <div class="w-full max-w-4xl text-center my-auto pt-12">
-            <h1 class="text-4xl sm:text-6xl font-extrabold tracking-tight text-white mb-6 heading-font leading-[1.15]">
-                Secure Autonomous Machine <br>
-                <span class="bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-indigo-200 to-purple-400">Transactions in 2 Milliseconds</span>
-            </h1>
-            <p class="text-lg text-gray-400 max-w-2xl mx-auto mb-10 leading-relaxed">
-                The global compliance proxy and transaction-level firewall for AI agents. Route, audit, and settle machine traffic seamlessly across integrated Web3 Crypto and M-Pesa channels before payloads hit downstream payment networks.
-            </p>
-            <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
-                <a href="#dashboard" class="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold rounded-xl shadow-lg shadow-blue-500/20 transition-all duration-200 transform hover:-translate-y-0.5 text-center">
-                    Launch Live Console Dashboard
-                </a>
-                <a href="https://github.com" target="_blank" class="w-full sm:w-auto px-8 py-4 bg-gray-900/80 hover:bg-gray-800 text-gray-200 font-semibold rounded-xl border border-gray-800 transition-all duration-200 text-center flex items-center justify-center space-x-2">
-                    <span>View Open-Source SDK</span>
-                </a>
-            </div>
+    <!-- HERO HEADER -->
+    <div class="max-w-4xl mx-auto text-center my-12 bg-gray-900 border border-gray-800 p-8 rounded-2xl shadow-2xl">
+        <span class="text-emerald-400 text-xs font-bold tracking-widest bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20 uppercase">
+            ● ALL NETWORK GATES ACTIVE
+        </span>
+        <h1 class="text-4xl font-extrabold text-white mt-4 mb-4">
+            AEGIS//AGENT SECURITY PROXY
+        </h1>
+        <p class="text-gray-300 max-w-xl mx-auto mb-6 text-sm">
+            Autonomous transaction-level firewall for AI agents. Securing machine traffic across Web3 Crypto and M-Pesa channels in under 2 milliseconds.
+        </p>
+        <div class="flex justify-center gap-4">
+            <a href="https://github.com" target="_blank" class="bg-blue-600 hover:bg-blue-500 text-white font-bold px-6 py-3 rounded-xl transition">
+                View Open-Source SDK
+            </a>
         </div>
+    </div>
 
-        <!-- Value Pillars -->
-        <div class="w-full max-w-5xl grid grid-cols-1 md:grid-cols-3 gap-6 pt-8">
-            <div class="bg-gray-900/40 border border-gray-800/60 p-6 rounded-2xl backdrop-blur-sm">
-                <div class="h-10 w-10 bg-blue-500/10 rounded-xl flex items-center justify-center text-blue-400 mb-4 font-bold">01</div>
-                <h3 class="text-lg font-semibold text-white mb-2 heading-font">Failsafe Security Proxy</h3>
-                <p class="text-sm text-gray-400 leading-relaxed">Intercepts and halts runaway loop automation before errors drain digital credit balances or linked bank parameters.</p>
-            </div>
-            <div class="bg-gray-900/40 border border-gray-800/60 p-6 rounded-2xl backdrop-blur-sm">
-                <div class="h-10 w-10 bg-indigo-500/10 rounded-xl flex items-center justify-center text-indigo-400 mb-4 font-bold">02</div>
-                <h3 class="text-lg font-semibold text-white mb-2 heading-font">Dual Currency Toll Engines</h3>
-                <p class="text-sm text-gray-400 leading-relaxed">Native backend processing accounting structures seamlessly tracking settlement fields in both KES and USD weights.</p>
-            </div>
-            <div class="bg-gray-900/40 border border-gray-800/60 p-6 rounded-2xl backdrop-blur-sm">
-                <div class="h-10 w-10 bg-purple-500/10 rounded-xl flex items-center justify-center text-purple-400 mb-4 font-bold">03</div>
-                <h3 class="text-lg font-semibold text-white mb-2 heading-font">Multi-Bot Scope Isolation</h3>
-                <p class="text-sm text-gray-400 leading-relaxed">Segregate tracking layers and traffic thresholds concurrently for AlphaBot, BetaBot, and SpikeBot clusters natively.</p>
-            </div>
+    <!-- CORE LIVE METRICS -->
+    <div class="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+        <div class="bg-gray-900 border-2 border-blue-500 p-6 rounded-xl text-center">
+            <span class="text-gray-400 text-xs font-bold uppercase block mb-1">Audited Bot Tasks</span>
+            <span class="text-4xl font-black text-white font-mono block">0</span>
         </div>
-    </header>
-
-    <!-- ACTIVE SYSTEM MONITOR STAGE -->
-    <main id="dashboard" class="w-full max-w-6xl mx-auto px-6 py-20 border-t border-gray-900 scroll-mt-6">
-        <div class="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-10">
-            <div>
-                <p class="text-xs font-bold tracking-widest text-blue-500 uppercase mb-2">Operational Command Center</p>
-                <h2 class="text-3xl font-bold text-white heading-font tracking-tight">Real-Time Core Metrics</h2>
-            </div>
-            <div class="text-xs text-gray-500 bg-gray-950 px-4 py-2 rounded-lg border border-gray-800/80">
-                System Refresh Interval: <span class="text-blue-400 font-mono">Active Push Staging</span>
-            </div>
+        <div class="bg-gray-900 border-2 border-emerald-500 p-6 rounded-xl text-center">
+            <span class="text-gray-400 text-xs font-bold uppercase block mb-1">Toll Revenue (KES)</span>
+            <span class="text-4xl font-black text-emerald-400 font-mono block">KSh 0.00</span>
         </div>
-
-        <!-- METRICS ROW -->
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-12">
-            <div class="bg-gradient-to-b from-gray-900/60 to-gray-950 border border-gray-800/80 p-8 rounded-2xl glow-effect">
-                <span class="text-xs font-semibold text-gray-400 tracking-wider uppercase block mb-2">Audited Bot Tasks</span>
-                <span class="text-5xl font-bold text-white tracking-tight heading-font font-mono block">0</span>
-            </div>
-            <div class="bg-gradient-to-b from-gray-900/60 to-gray-950 border border-gray-800/80 p-8 rounded-2xl glow-effect">
-                <span class="text-xs font-semibold text-gray-400 tracking-wider uppercase block mb-2">Toll Revenue (KES)</span>
-                <span class="text-5xl font-bold text-blue-400 tracking-tight heading-font font-mono block">KSh 0.00</span>
-            </div>
-            <div class="bg-gradient-to-b from-gray-900/60 to-gray-950 border border-gray-800/80 p-8 rounded-2xl glow-effect">
-                <span class="text-xs font-semibold text-gray-400 tracking-wider uppercase block mb-2">Sovereign Yield (USD)</span>
-                <span class="text-5xl font-bold text-indigo-400 tracking-tight heading-font font-mono block">$0.0000</span>
-            </div>
+        <div class="bg-gray-900 border-2 border-purple-500 p-6 rounded-xl text-center">
+            <span class="text-gray-400 text-xs font-bold uppercase block mb-1">Sovereign Yield (USD)</span>
+            <span class="text-4xl font-black text-purple-400 font-mono block">$0.0000</span>
         </div>
+    </div>
 
-        <!-- LOAD ANALYTICS CLUSTERS -->
-        <section class="mb-12">
-            <h3 class="text-lg font-semibold text-gray-300 heading-font mb-4">Active Profile Load Targets</h3>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div class="bg-gray-950/80 border border-gray-800/60 p-6 rounded-xl flex items-center justify-between">
-                    <div>
-                        <span class="text-sm font-medium text-gray-400 block mb-1">AlphaBot Instance</span>
-                        <span class="text-xs text-gray-500 font-mono">Cluster Allocation Active</span>
-                    </div>
-                    <span class="h-2 w-2 rounded-full bg-blue-500 shadow-md shadow-blue-500/50"></span>
-                </div>
-                <div class="bg-gray-950/80 border border-gray-800/60 p-6 rounded-xl flex items-center justify-between">
-                    <div>
-                        <span class="text-sm font-medium text-gray-400 block mb-1">BetaBot Instance</span>
-                        <span class="text-xs text-gray-500 font-mono">Cluster Allocation Active</span>
-                    </div>
-                    <span class="h-2 w-2 rounded-full bg-indigo-500 shadow-md shadow-indigo-500/50"></span>
-                </div>
-                <div class="bg-gray-950/80 border border-gray-800/60 p-6 rounded-xl flex items-center justify-between">
-                    <div>
-                        <span class="text-sm font-medium text-gray-400 block mb-1">SpikeBot Instance</span>
-                        <span class="text-xs text-gray-500 font-mono">Cluster Allocation Active</span>
-                    </div>
-                    <span class="h-2 w-2 rounded-full bg-purple-500 shadow-md shadow-purple-500/50"></span>
-                </div>
-            </div>
-        </section>
+    <!-- BOT INVENTORY -->
+    <div class="max-w-4xl mx-auto grid grid-cols-3 gap-4 mb-12 text-center text-sm font-semibold">
+        <div class="bg-gray-900/60 border border-gray-800 p-4 rounded-xl text-blue-400">AlphaBot Active</div>
+        <div class="bg-gray-900/60 border border-gray-800 p-4 rounded-xl text-indigo-400">BetaBot Active</div>
+        <div class="bg-gray-900/60 border border-gray-800 p-4 rounded-xl text-purple-400">SpikeBot Active</div>
+    </div>
 
-        <!-- STREAM LOG TABLE CONTAINER -->
-        <section class="bg-gray-950/40 border border-gray-800/60 rounded-2xl overflow-hidden backdrop-blur-md">
+</body>
+</html>
