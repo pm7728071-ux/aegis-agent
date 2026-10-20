@@ -9,7 +9,6 @@ const app = express();
 // 1. GLOBAL MIDDLEWARE
 app.use(cors()); 
 app.use(express.json()); 
-app.use(express.static(path.join(__dirname))); 
 
 // 2. MONGOOSE CLOUD DATABASE PIPELINE
 const MONGO_URI = process.env.MONGO_URI;
@@ -29,7 +28,6 @@ const MetricSchema = new mongoose.Schema({
 
 const Metric = mongoose.model('Metric', MetricSchema);
 
-// Helper function to initialize or retrieve global stats
 async function getOrCreateMetrics() {
     let metrics = await Metric.findOne({ id: "global_metrics" });
     if (!metrics) {
@@ -38,9 +36,8 @@ async function getOrCreateMetrics() {
     return metrics;
 }
 
-// 4. API ROUTE PATHS
+// 4. API ROUTE PATHS (Placed first so Express hits these endpoints before static files)
 
-// Fetch current dashboard indicators
 app.get('/api/metrics', async (req, res) => {
     try {
         const metrics = await getOrCreateMetrics();
@@ -50,7 +47,6 @@ app.get('/api/metrics', async (req, res) => {
     }
 });
 
-// Endpoint used by rogue-bot-test.js to verify status
 app.get('/api/config', async (req, res) => {
     try {
         res.json({
@@ -64,7 +60,6 @@ app.get('/api/config', async (req, res) => {
     }
 });
 
-// Endpoint to catch and log a rogue bot or malicious payload transaction
 app.post('/api/intercept', async (req, res) => {
     try {
         const { botId, reason, ipAddress, payloadRiskScore, channel } = req.body;
@@ -78,7 +73,6 @@ app.post('/api/intercept', async (req, res) => {
             timestamp: new Date().toISOString()
         };
 
-        // Quoted string keys prevent markdown glitches completely
         const updateOperations = {};
         updateOperations['\$inc'] = { totalTasksAudited: 1 };
         updateOperations['\$push'] = { rogueBotsCaught: newRogueBot };
@@ -96,7 +90,6 @@ app.post('/api/intercept', async (req, res) => {
     }
 });
 
-// M-Pesa Sandbox simulation endpoint to increment revenue metrics
 app.post('/api/transaction/toll', async (req, res) => {
     try {
         const { amountKSH, yieldUSD } = req.body;
@@ -120,12 +113,14 @@ app.post('/api/transaction/toll', async (req, res) => {
     }
 });
 
-// Fallback to serve the main HTML user interface for all root routes
+// 5. STATIC FILES LAYER (Placed last so it acts as a fallback)
+app.use(express.static(path.join(__dirname))); 
+
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// 5. BOOT SERVER INSTANCE
+// 6. BOOT SERVER INSTANCE
 const PORT = process.env.PORT || 4379; 
 app.listen(PORT, () => {
     console.log(`🛡️ [SYSTEM OPERATIONAL] Aegis Proxy Security Gateway Deployed on Port: ${PORT}`);
