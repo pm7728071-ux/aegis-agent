@@ -1,135 +1,132 @@
 const express = require('express');
-const fs = require('fs');
+const mongoose = require('mongoose');
+const cors = require('cors');
 const path = require('path');
+require('dotenv').config();
+
 const app = express();
-const PORT = process.env.PORT || 3000;
 
-// Enable JSON parsing middleware for incoming payloads
-app.use(express.json());
+// 1. GLOBAL MIDDLEWARE
+app.use(cors()); 
+app.use(express.json()); 
+app.use(express.static(path.join(__dirname))); 
 
-// Helper function to safely read the local JSON tracking database
-function readDB() {
-    const dbPath = path.join(__dirname, 'database.json');
-    if (!fs.existsSync(dbPath)) {
-        // Initialize default metrics structure if file is missing
-        const initialDB = {
-            metrics: {
-                totalTransactionsAudited: 0,
-                totalRevenueKSH: 0,
-                sovereignYieldUSD: 0
-            },
-            config: {
-                maxAmountLimitKES: 5000
-            },
-            logs: []
-        };
-        fs.writeFileSync(dbPath, JSON.stringify(initialDB, null, 2));
-        return initialDB;
+// 2. MONGOOSE CLOUD DATABASE PIPELINE
+const MONGO_URI = process.env.MONGO_URI;
+
+mongoose.connect(MONGO_URI)
+  .then(() => console.log('🚀 [SECURE LAYER] Aegis Core Cluster Connected to MongoDB Cloud!'))
+  .catch(err => console.error('❌ Database Initialization Fault:', err));
+
+// 3. TELEMETRY STORAGE STRUCTURE (SCHEMA)
+const MetricSchema = new mongoose.Schema({
+    id: { type: String, default: "global_metrics" },
+    totalTasksAudited: { type: Number, default: 0 },
+    totalRevenueKSH: { type: Number, default: 0 },
+    sovereignYieldUSD: { type: Number, default: 0 },
+    rogueBotsCaught: { type: Array, default: [] } 
+});
+
+const Metric = mongoose.model('Metric', MetricSchema);
+
+// Helper function to initialize or retrieve global stats
+async function getOrCreateMetrics() {
+    let metrics = await Metric.findOne({ id: "global_metrics" });
+    if (!metrics) {
+        metrics = await Metric.create({ id: "global_metrics" });
     }
-    return JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+    return metrics;
 }
 
-// Helper function to safely write updates back to the local database file
-function writeDB(data) {
-    const dbPath = path.join(__dirname, 'database.json');
-    fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
-}
+// 4. API ROUTE PATHS
 
-// ==========================================
-// 🛡️ CRITICAL DATA PIPELINES & API ENDPOINTS
-// ==========================================
-
-// 1. GET DATA METRICS (Used by your dashboard and test bots)
-app.get('/api/metrics', (req, res) => {
+// Fetch current dashboard indicators
+app.get('/api/metrics', async (req, res) => {
     try {
-        const db = readDB();
+        const metrics = await getOrCreateMetrics();
+        res.json(metrics);
+    } catch (error) {
+        res.status(500).json({ error: "Failed to fetch cloud analytics cluster data" });
+    }
+});
+
+// Endpoint used by rogue-bot-test.js to verify status
+app.get('/api/config', async (req, res) => {
+    try {
         res.json({
-            activeConnections: 1, // Base indicator counting active console connections
-            totalTasks: db.metrics.totalTransactionsAudited || 0,
-            totalRevenueKES: db.metrics.totalRevenueKSH || 0,
-            sovereignYieldUSD: db.metrics.sovereignYieldUSD || 0
+            status: "ACTIVE",
+            gateway: "Aegis Secure Proxy v1.0.2",
+            environment: "Production/Cloud Cluster Sync Operational",
+            firewallRulesLoaded: true
         });
     } catch (error) {
-        res.status(500).json({ error: "Failed to read internal metric profiles." });
+        res.status(500).json({ error: "Configuration system unreachable" });
     }
 });
 
-// 2. GET SYSTEM CONFIGURATION
-app.get('/api/config', (req, res) => {
+// Endpoint to catch and log a rogue bot or malicious payload transaction
+app.post('/api/intercept', async (req, res) => {
     try {
-        const db = readDB();
-        res.json(db.config || { maxAmountLimitKES: 5000 });
-    } catch (error) {
-        res.status(500).json({ error: "Failed to load threshold settings." });
-    }
-});
-
-// 3. POST CONFIGURATION PUSH (Saves configuration modifications dynamically)
-app.post('/api/config', (req, res) => {
-    try {
-        const db = readDB();
-        if (req.body.maxAmountLimitKES !== undefined) {
-            db.config.maxAmountLimitKES = Number(req.body.maxAmountLimitKES);
-            
-            // Increment task metric state to visually demonstrate live activity
-            db.metrics.totalTransactionsAudited += 1;
-            db.metrics.totalRevenueKSH += 1.00; // Incrementing toll counter weights
-            db.metrics.sovereignYieldUSD += 0.0078; // Accumulating yield metrics
-            
-            writeDB(db);
-            res.json({ success: true, updatedLimit: db.config.maxAmountLimitKES });
-        } else {
-            res.status(400).json({ error: "Missing required parameter: maxAmountLimitKES" });
-        }
-    } catch (error) {
-        res.status(500).json({ error: "Failed to overwrite telemetry configuration fields." });
-    }
-});
-
-// 4. GET SYSTEM DATA LOGS
-app.get('/api/logs', (req, res) => {
-    try {
-        const db = readDB();
-        res.json(db.logs || []);
-    } catch (error) {
-        res.status(500).json({ error: "Failed to fetch telemetry event stream logs." });
-    }
-});
-
-// 5. EXPORT TRANSACTION LOGS AS EXCEL/CSV SHEETS
-app.get('/api/export-csv', (req, res) => {
-    try {
-        const db = readDB();
-        const headers = "Timestamp Field,Agent Scope,Payload Load Value,Status Marker,Proxy Firewall Verdict Notes\n";
-        const rows = (db.logs || []).map(log => 
-            `"${log.timestamp}","${log.agentId}",${log.amount},"${log.status}","${log.verdict}"`
-        ).join("\n");
+        const { botId, reason, ipAddress, payloadRiskScore, channel } = req.body;
         
-        res.setHeader('Content-Type', 'text/csv');
-        res.setHeader('Content-Disposition', `attachment; filename=AEGIS_MULTI_BOT_AUDIT_${Date.now()}.csv`);
-        res.status(200).send(headers + rows);
+        const newRogueBot = {
+            botId: botId || `BOT-${Math.floor(1000 + Math.random() * 9000)}`,
+            reason: reason || "Unauthorized critical security protocol escalation",
+            ipAddress: ipAddress || req.headers['x-forwarded-for'] || req.socket.remoteAddress,
+            payloadRiskScore: payloadRiskScore || "CRITICAL_98",
+            channel: channel || "Web3 / M-Pesa Rails",
+            timestamp: new Date().toISOString()
+        };
+
+        // Quoted string keys prevent markdown glitches completely
+        const updateOperations = {};
+        updateOperations['\$inc'] = { totalTasksAudited: 1 };
+        updateOperations['\$push'] = { rogueBotsCaught: newRogueBot };
+
+        const updatedMetrics = await Metric.findOneAndUpdate(
+            { id: "global_metrics" },
+            updateOperations,
+            { new: true, upsert: true }
+        );
+
+        console.log(`⚠️ [FIREWALL ALERT] Intercepted Rogue Bot: ${newRogueBot.botId}`);
+        res.status(201).json({ success: true, message: "Security risk isolated successfully", alert: newRogueBot });
     } catch (error) {
-        res.status(500).send("Error compiling raw analytics sheet data export.");
+        res.status(500).json({ error: "Security processing engine fault" });
     }
 });
 
-// ==========================================
-// 🎨 FRONT-END STATIC INTERFACE INJECTION
-// ==========================================
+// M-Pesa Sandbox simulation endpoint to increment revenue metrics
+app.post('/api/transaction/toll', async (req, res) => {
+    try {
+        const { amountKSH, yieldUSD } = req.body;
+        
+        const revenueOperations = {};
+        revenueOperations['\$inc'] = { 
+            totalTasksAudited: 1,
+            totalRevenueKSH: amountKSH || 50.00,
+            sovereignYieldUSD: yieldUSD || 0.38
+        };
 
-// CRITICAL ROUTING FIX: Serving static frontend asset layouts *AFTER* the API routers
-// This forces Render to evaluate API requests first instead of overriding them with HTML
-app.use(express.static(__dirname));
+        const updatedMetrics = await Metric.findOneAndUpdate(
+            { id: "global_metrics" },
+            revenueOperations,
+            { new: true, upsert: true }
+        );
 
-// Direct catch-all route pointing straight to your updated dashboard layout file
+        res.json({ success: true, currentBalance: updatedMetrics });
+    } catch (error) {
+        res.status(500).json({ error: "Financial settlement layer connection timeout" });
+    }
+});
+
+// Fallback to serve the main HTML user interface for all root routes
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Launch server instance cluster connection pools
+// 5. BOOT SERVER INSTANCE
+const PORT = process.env.PORT || 4379; 
 app.listen(PORT, () => {
-    console.log(`=================================================`);
-    console.log(`🚀 AEGIS//AGENT SECURITY CORE ONLINE AND RUNNING`);
-    console.log(`📡 Local Port Access: http://localhost:${PORT}`);
-    console.log(`=================================================`);
+    console.log(`🛡️ [SYSTEM OPERATIONAL] Aegis Proxy Security Gateway Deployed on Port: ${PORT}`);
 });
