@@ -1,29 +1,19 @@
-# Aegis//Agent SDK (JavaScript) 🛡️🤖
+# AEGIS//AGENT SDK
 
-The official Developer Connection Kit to secure and audit autonomous machine transactions in under **2 milliseconds**. Route, verify, and settle AI agent financial traffic through a compliant proxy tier backed by live **Crypto & M-Pesa** transaction gateways.
+Current dashboard (preview, not yet published): https://id-preview--5e418230-5342-41e8-a5ff-758e8eff2d25.lovable.app
 
-📊 **Live Dashboard Monitoring:** [Aegis//Agent Dashboard](https://aegis-agent-4u79.onrender.com)
+Audit endpoint: https://id-preview--5e418230-5342-41e8-a5ff-758e8eff2d25.lovable.app/api/audit
 
----
+Public mock threat radar: https://id-preview--5e418230-5342-41e8-a5ff-758e8eff2d25.lovable.app/radar
 
-## Features
-- **Multi-Bot Scope Filter Core:** Seamlessly segregate traffic across independent agent profiles.
-- **Dual Currency Toll Engines:** Native accounting processing for both **KES** and **USD** transaction fields.
-- **Failsafe Security Proxy:** Real-time transaction validation layer protecting downstream payment rails from runaway automated bot logic.
-
-## Quick Start Installation
-
-For now, simply drop the connection client file into your local project environment:
+## Quick start
 
 ```javascript
-const AegisClient = require('./index.js');
-
-// 1. Initialize your autonomous agent profile
+const AegisClient = require('./aegis-sdk.js');
 const agent = new AegisClient('AlphaBot');
-
-// 2. Intercept and audit an automated transaction payload
-(async () => {
-    const assessment = await agent.auditTransaction(150, "KES", "2547XXXXXXXX");
-    console.log("Aegis Security Verdict:", assessment);
-})();
+agent.auditTransaction(150, 'KES').then(console.log);
 ```
+
+Audits approve or block KES and USD transactions against policy limits. Network failures block by default. The M-Pesa Settle Link is a simulation at 0.50 KES per audit; no real payment bridge or funds transfer is enabled. The radar uses mock traffic.
+
+Run `node test-aegis.js` for a non-mutating invalid-payload endpoint check. After publication, replace the preview origin in the SDK, test script and this document with the verified published origin. Legacy API route shapes remain unchanged.
