@@ -1,10 +1,17 @@
 # AEGIS//AGENT SDK
 
-Current dashboard (preview, not yet published): https://id-preview--5e418230-5342-41e8-a5ff-758e8eff2d25.lovable.app
+Live gateway & security console: https://aegis-agent-4u79.onrender.com
 
-Audit endpoint: https://id-preview--5e418230-5342-41e8-a5ff-758e8eff2d25.lovable.app/api/audit
+Audit endpoint: POST https://aegis-agent-4u79.onrender.com/api/audit
+(the gateway root also accepts POST — this is what the SDK sends)
 
-Public mock threat radar: https://id-preview--5e418230-5342-41e8-a5ff-758e8eff2d25.lovable.app/radar
+Payload: `{"agentId":"AlphaBot","amount":150,"currency":"KES","mpesaRecipient":"254712345678"}`
+
+Verdict: `{"status":"APPROVED"|"BLOCKED","reason":"..."}` — policy limits, currency
+and M-Pesa recipients are validated, verdicts persist to the audit trail, and
+any gateway fault blocks the transaction by default. Policy limits live in the
+`policy` object on `/api/config` and can be tightened via POST `/api/config`
+with `{"maxAmountLimitKES": 7500}`.
 
 ## Quick start
 
