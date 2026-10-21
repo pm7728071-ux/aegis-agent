@@ -2,6 +2,7 @@ import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import path from 'path';
+import fs from 'fs';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 
@@ -14,14 +15,15 @@ const app = express();
 // 1. GLOBAL MIDDLEWARE
 app.use(cors()); 
 app.use(express.json()); 
-// Serve static assets from the root or build folder
-const publicPath = path.join(__dirname, '.');
+// Serve the built app when present, otherwise fall back to the repo root
+const distPath = path.join(__dirname, 'dist');
+const publicPath = fs.existsSync(distPath) ? distPath : __dirname;
 app.use(express.static(publicPath));
 
 // Fallback to serve the main HTML file for the app frontend
 app.get('*', (req, res) => {
   if (!req.url.startsWith('/api')) {
-    res.sendFile(path.join(__dirname, 'index.html'));
+    res.sendFile(path.join(publicPath, 'index.html'));
   }
 });
 
@@ -130,11 +132,7 @@ app.post('/api/transaction/toll', async (req, res) => {
 });
 
 // 5. STATIC FILES LAYER (Placed last so it acts as a fallback)
-app.use(express.static(path.join(__dirname))); 
-
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
-});
+app.use(express.static(publicPath));
 
 // 6. BOOT SERVER INSTANCE
 const PORT = process.env.PORT || 4379; 
