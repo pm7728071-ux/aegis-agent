@@ -19,7 +19,7 @@ app.use(express.json());
 // Never let browsers serve a stale product page: HTML/JS must revalidate
 app.use((req, res, next) => {
   if (/\.(html|js)$/i.test(req.path) || req.path === '/' || req.path === '/console') {
-    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   }
   next();
 });
