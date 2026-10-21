@@ -14,6 +14,17 @@ const app = express();
 // 1. GLOBAL MIDDLEWARE
 app.use(cors()); 
 app.use(express.json()); 
+// Serve static assets from the root or build folder
+const publicPath = path.join(__dirname, '.');
+app.use(express.static(publicPath));
+
+// Fallback to serve the main HTML file for the app frontend
+app.get('*', (req, res) => {
+  if (!req.url.startsWith('/api')) {
+    res.sendFile(path.join(__dirname, 'index.html'));
+  }
+});
+
 
 // 2. MONGOOSE CLOUD DATABASE PIPELINE
 const MONGO_URI = process.env.MONGO_URI;
