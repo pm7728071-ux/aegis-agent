@@ -1,0 +1,22 @@
+COMPANY NAME: AegisAgent (Aegis AI)
+FOUNDER: [peter mwangi]
+SECTOR: B2B Enterprise Software / AI Infrastructure Security
+FOUNDING DATE: October 2026
+
+1. MISSION STATEMENT
+AegisAgent builds the foundational trust, identity, and security orchestration layers necessary to safeguard the trillion-dollar autonomous AI agent economy.
+
+2. THE SYSTEMIC PROBLEM
+As the global economy transitions from human-initiated actions to autonomous AI agents executing unsupervised financial transactions, procurement, and API queries, enterprises face immense financial and operational risks. AI models can experience logic loops, branch out of preset guidelines, or exceed budgets. Because auditing cannot safely occur inside the agent itself, the market requires an absolute, external firewall verification gateway.
+
+3. OUR PROPRIETARY SOLUTION (MVP)
+AegisAgent has successfully deployed a high-performance network proxy intercept engine. By routing autonomous workflows through our secure middleware layer, enterprise administrators can set real-time dynamic guardrail ceilings. Any agent query that violates the preset corporate data pattern or budget constraint is instantly intercepted, neutralized, and logged to a permanent local ledger.
+
+4. COMMERCIAL STRATEGY & UNIT ECONOMICS
+AegisAgent operates on a highly scalable B2B Software-as-a-Service (SaaS) architecture yielding 80%+ gross margins. 
+Revenue is generated via two compounding models:
+• Tiered Enterprise Licensing: Monthly recurring access fees for infrastructure orchestration dashboards.
+• Transactional Toll Processing Fees: A fractional charge (e.g., $0.001) per verified data payload execution.
+
+5. NEXT INFLECTION MILESTONE
+Having successfully validated our core algorithmic logic, live network intercept capabilities, and persistent storage layers locally, AegisAgent is raising seed capital to build out decentralized software development kits (SDKs) and expand integration rails directly into high-growth financial payment hubs (including African mobile currency frameworks like M-Pesa).

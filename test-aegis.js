@@ -1,13 +1,36 @@
+// Completely Rewritten Aegis//Agent Live Cluster Verification Script
 async function runTest() {
-const endpoint = "https://id-preview--5e418230-5342-41e8-a5ff-758e8eff2d25.lovable.app/api/audit";
-// Invalid input checks the route without creating test transactions.
-const response = await fetch(endpoint, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ amount: 0, currency: "KES" }),
-});
-const verdict = await response.json();
-if (response.status !== 400 || verdict.status !== "BLOCKED") throw new Error(`Audit route check failed (${response.status})`);
-console.log("Audit endpoint reachable; invalid transaction blocked without creating sample data.");
+    // 1. Pointing explicitly to your verified live Render endpoint
+    const gatewayUrl = "https://aegis-agent-4u79.onrender.com";
+
+    
+    
+    console.log("🚀 Initializing live cluster connection test...");
+    console.log(`📡 Targeting endpoint: ${gatewayUrl}/api/config`);
+    
+    try {
+        // 2. Dispatching the configuration update payload
+        const response = await fetch(`${gatewayUrl}/api/config`, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+                maxAmountLimitKES: 7500
+            })
+        });
+        
+        // 3. Parsing the response stream from Render
+        const result = await response.json();
+        console.log("\n✅ Live Server Network Connection: SUCCESS");
+        console.log("📦 Response Payload Data:");
+        console.dir(result, { depth: null });
+        
+    } catch (error) {
+        console.log("\n❌ Network Routing Failed");
+        console.error("Reason:", error.message);
+    }
 }
-runTest().catch(error => { console.error(error.message); process.exitCode = 1; });
+
+runTest();

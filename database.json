@@ -1,0 +1,10 @@
+{
+  "config": {
+    "maxAmountLimitKES": 1300
+  },
+  "metrics": {
+    "totalTransactionsAudited": 0,
+    "totalRevenueKSH": 0
+  },
+  "logs": []
+}
