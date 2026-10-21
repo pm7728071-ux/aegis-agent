@@ -3,10 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Aegis — the policy gate for autonomous agents. Every transaction your agent attempts is checked against a live policy before it touches payment rails, and recorded to an immutable audit trail." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-    <title>Sovereign Policy Grid — Security Console</title>
+    <title>Aegis — The Policy Gate for Autonomous Agents</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
@@ -39,19 +40,16 @@
     <style>
       @keyframes pulseDot { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .5; transform: scale(.85); } }
       @keyframes slideIn { 0% { opacity: 0; transform: translateY(6px); } 100% { opacity: 1; transform: translateY(0); } }
-      @keyframes scanline { 0% { transform: translateY(-100%); } 100% { transform: translateY(100%); } }
       @keyframes countPop { 0% { transform: scale(1); } 40% { transform: scale(1.18); } 100% { transform: scale(1); } }
-      @keyframes ring { 0% { box-shadow: 0 0 0 0 rgba(34,211,164,.45); } 70% { box-shadow: 0 0 0 8px rgba(34,211,164,0); } 100% { box-shadow: 0 0 0 0 rgba(34,211,164,0); } }
       .animate-pulseDot { animation: pulseDot 1.8s ease-in-out infinite; }
       .animate-slideIn { animation: slideIn .25s ease-out; }
-      .animate-scanline { animation: scanline 3.5s linear infinite; }
       .animate-countPop { animation: countPop .45s ease-out; }
-      .animate-ring { animation: ring 1.4s ease-out; }
-      html { scrollbar-color: #1c2745 #070a14; }
+      html { scroll-behavior: smooth; scrollbar-color: #1c2745 #070a14; }
+      pre { scrollbar-width: thin; }
     </style>
   </head>
   <body class="bg-ink-950 text-slate-200 antialiased">
-    <!-- Top console bar -->
+    <!-- Header -->
     <header class="sticky top-0 z-10 border-b border-ink-700 bg-ink-900/90 backdrop-blur">
       <div class="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
         <div class="flex items-center gap-3">
@@ -59,112 +57,220 @@
             <span class="text-primary-300">🛡️</span>
           </div>
           <div>
-            <h1 class="text-sm font-semibold tracking-wide text-slate-100">Sovereign Policy Grid</h1>
-            <p class="text-[10px] uppercase tracking-[0.22em] text-slate-500 font-mono">AEGIS Security Console</p>
+            <h1 class="text-sm font-semibold tracking-wide text-slate-100">AEGIS</h1>
+            <p class="text-[10px] uppercase tracking-[0.22em] text-slate-500 font-mono">Policy Gateway</p>
           </div>
         </div>
+        <nav class="hidden items-center gap-6 font-mono text-xs text-slate-400 sm:flex">
+          <a href="#how" class="transition hover:text-primary-300">How it works</a>
+          <a href="#playground" class="transition hover:text-primary-300">Playground</a>
+          <a href="#register" class="transition hover:text-primary-300">Get an API key</a>
+          <a href="#api" class="transition hover:text-primary-300">API</a>
+        </nav>
         <div class="flex items-center gap-2 rounded-full border border-ink-600 bg-ink-850 px-4 py-1.5">
           <span id="statusDot" class="h-2 w-2 rounded-full bg-danger-400"></span>
-          <span id="statusText" class="text-xs font-mono text-slate-300">LINK DOWN</span>
+          <span id="statusText" class="text-xs font-mono text-slate-300">CONNECTING</span>
         </div>
       </div>
     </header>
 
-    <main class="mx-auto max-w-6xl space-y-8 px-6 py-8">
-      <div id="errorBanner" class="hidden rounded-lg border border-danger-500/40 bg-danger-500/10 px-4 py-3 font-mono text-sm text-danger-400 shadow-dangerGlow"></div>
-      <div id="flash" class="hidden rounded-lg px-4 py-3 font-mono text-sm animate-slideIn"></div>
+    <main class="mx-auto max-w-6xl space-y-16 px-6 py-12">
+      <!-- Hero -->
+      <section class="space-y-6 text-center">
+        <p class="font-mono text-[11px] uppercase tracking-[0.3em] text-primary-300">Fail-closed by design</p>
+        <h2 class="mx-auto max-w-3xl text-4xl font-bold leading-tight text-slate-100 sm:text-5xl">
+          The policy gate for <span class="text-primary-400">autonomous agents</span>.
+        </h2>
+        <p class="mx-auto max-w-2xl text-base leading-relaxed text-slate-400">
+          Before your AI agent moves money, it asks Aegis. Every transaction is checked
+          against a live policy limit and recorded to an immutable audit trail.
+          If the gate is ever unreachable, it blocks — never lets money pass silently.
+        </p>
+        <div class="flex flex-wrap items-center justify-center gap-4">
+          <a href="#register" class="rounded-md bg-primary-500 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-400">Get your API key</a>
+          <a href="#playground" class="rounded-md border border-ink-600 bg-ink-850 px-6 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-primary-400">Try it live</a>
+        </div>
+        <p class="font-mono text-[11px] text-slate-600">Free to integrate · sandbox needs no key · KES &amp; USD rails</p>
+      </section>
 
-      <!-- Telemetry tiles -->
+      <!-- Live network stats -->
       <section class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div class="rounded-xl border border-ink-700 bg-ink-900/80 p-5 shadow-glow animate-slideIn">
-          <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">Tasks Audited</p>
-          <p id="tileTasks" class="mt-2 font-mono text-3xl font-semibold text-primary-300 animate-countPop">····</p>
+          <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">Verdicts Issued</p>
+          <p id="statVerdicts" class="mt-2 font-mono text-3xl font-semibold text-primary-300 animate-countPop">··</p>
         </div>
         <div class="rounded-xl border border-ink-700 bg-ink-900/80 p-5 shadow-glow animate-slideIn">
-          <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">Revenue — KES</p>
-          <p id="tileRevenue" class="mt-2 font-mono text-3xl font-semibold text-warn-400 animate-countPop">····</p>
+          <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">Agents Registered</p>
+          <p id="statAgents" class="mt-2 font-mono text-3xl font-semibold text-primary-300 animate-countPop">··</p>
         </div>
         <div class="rounded-xl border border-ink-700 bg-ink-900/80 p-5 shadow-glow animate-slideIn">
-          <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">Sovereign Yield — USD</p>
-          <p id="tileYield" class="mt-2 font-mono text-3xl font-semibold text-accent-400 animate-countPop">····</p>
+          <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">Tolls Metered — KES</p>
+          <p id="statTolls" class="mt-2 font-mono text-3xl font-semibold text-warn-400 animate-countPop">··</p>
         </div>
         <div class="rounded-xl border border-ink-700 bg-ink-900/80 p-5 shadow-glow animate-slideIn">
-          <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">Policy Ceiling</p>
-          <p id="tilePolicy" class="mt-2 font-mono text-3xl font-semibold text-primary-300 animate-countPop">····</p>
+          <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">Rogue Intercepts</p>
+          <p id="statIntercepts" class="mt-2 font-mono text-3xl font-semibold text-danger-400 animate-countPop">··</p>
         </div>
       </section>
 
-      <div class="grid gap-6 lg:grid-cols-5">
-        <!-- Operator controls -->
-        <section class="space-y-6 lg:col-span-2">
-          <form id="auditForm" class="space-y-3 rounded-xl border border-primary-500/30 bg-ink-900/80 p-5 shadow-glow">
-            <h2 class="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">Transaction Audit Gate</h2>
-            <input id="auditAgent" placeholder="Agent ID (e.g. AlphaBot)"
+      <!-- How it works -->
+      <section id="how" class="space-y-8">
+        <h3 class="text-center font-mono text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">How it works</h3>
+        <div class="grid gap-6 lg:grid-cols-3">
+          <div class="space-y-3 rounded-xl border border-ink-700 bg-ink-900/80 p-6">
+            <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-primary-300">Step 1</p>
+            <h4 class="text-lg font-semibold text-slate-100">Register your agent</h4>
+            <p class="text-sm leading-relaxed text-slate-400">Give your agent a name and receive an API key instantly. No email, no setup call — the key is generated in your browser session and shown exactly once.</p>
+          </div>
+          <div class="space-y-3 rounded-xl border border-ink-700 bg-ink-900/80 p-6">
+            <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-primary-300">Step 2</p>
+            <h4 class="text-lg font-semibold text-slate-100">Call the gate before every transaction</h4>
+            <p class="text-sm leading-relaxed text-slate-400">One POST request, authenticated with your key. Aegis compares the amount against the live policy limit.</p>
+            <pre class="overflow-x-auto rounded-lg border border-ink-700 bg-ink-950 p-3 font-mono text-[11px] leading-relaxed text-slate-300">curl -X POST https://aegis-agent-4u79.onrender.com/api/audit \
+  -H "Authorization: Bearer agk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"amount": 4500, "currency": "KES"}'</pre>
+          </div>
+          <div class="space-y-3 rounded-xl border border-ink-700 bg-ink-900/80 p-6">
+            <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-primary-300">Step 3</p>
+            <h4 class="text-lg font-semibold text-slate-100">Act only on APPROVED</h4>
+            <p class="text-sm leading-relaxed text-slate-400">The verdict, reason and toll come back in milliseconds, and the decision is written to the immutable audit trail. Anything else — block by default.</p>
+            <pre class="overflow-x-auto rounded-lg border border-ink-700 bg-ink-950 p-3 font-mono text-[11px] leading-relaxed text-slate-300">{
+  "status": "APPROVED",
+  "tollKES": 0.5,
+  "auditId": "6ad9…",
+  "mode": "live"
+}</pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- Playground -->
+      <section id="playground" class="grid gap-6 lg:grid-cols-2">
+        <div class="space-y-3 rounded-xl border border-primary-500/30 bg-ink-900/80 p-6 shadow-glow">
+          <h3 class="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">Live Playground — sandbox mode</h3>
+          <p class="text-xs leading-relaxed text-slate-500">Runs against the real production gate and the real audit trail — no key required, rate-limited to 20 requests/minute. Every verdict below is a genuine, recorded transaction.</p>
+          <form id="playForm" class="space-y-3 pt-2">
+            <input id="playAgent" placeholder="Your agent's name (optional)"
               class="w-full rounded-md border border-ink-600 bg-ink-850 px-3 py-2 font-mono text-sm text-slate-200 placeholder:text-slate-600 focus:border-primary-400 focus:outline-none" />
             <div class="flex gap-3">
-              <input id="auditAmount" type="number" min="0" step="0.01" required placeholder="Amount"
+              <input id="playAmount" type="number" min="0" step="0.01" required placeholder="Amount"
                 class="w-full rounded-md border border-ink-600 bg-ink-850 px-3 py-2 font-mono text-sm text-slate-200 placeholder:text-slate-600 focus:border-primary-400 focus:outline-none" />
-              <select id="auditCurrency"
+              <select id="playCurrency"
                 class="rounded-md border border-ink-600 bg-ink-850 px-3 py-2 font-mono text-sm text-slate-200 focus:border-primary-400 focus:outline-none">
                 <option value="KES">KES</option>
                 <option value="USD">USD</option>
               </select>
             </div>
-            <button type="submit" class="w-full rounded-md bg-primary-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-400 disabled:opacity-50">Audit Transaction</button>
-            <p class="text-[10px] leading-relaxed text-slate-600">Agents call this gate before touching payment rails. Failures block by default.</p>
+            <button type="submit" class="w-full rounded-md bg-primary-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-400 disabled:opacity-50">Send through the gate</button>
           </form>
+        </div>
+        <div id="playVerdict" class="hidden rounded-xl border p-6">
+          <p id="playVerdictTitle" class="font-mono text-sm font-semibold"></p>
+          <p id="playVerdictReason" class="mt-1 text-xs text-slate-400"></p>
+          <p id="playVerdictMeta" class="mt-1 font-mono text-[10px] text-slate-500"></p>
+        </div>
+      </section>
 
-          <div id="verdict" class="hidden rounded-xl border p-4 animate-slideIn">
-            <p id="verdictTitle" class="font-mono text-sm font-semibold"></p>
-            <p id="verdictReason" class="mt-1 text-xs text-slate-400"></p>
-            <p id="verdictMeta" class="mt-1 font-mono text-[10px] text-slate-500"></p>
+      <!-- Register -->
+      <section id="register" class="grid gap-6 lg:grid-cols-2">
+        <div class="space-y-3 rounded-xl border border-accent-500/30 bg-ink-900/80 p-6 shadow-glow">
+          <h3 class="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">Register an agent — get a production key</h3>
+          <p class="text-xs leading-relaxed text-slate-500">Live mode: your agent is identified, rate-limited to 120 req/min, and every verdict is attributed to it. Key shown once — store it securely.</p>
+          <form id="registerForm" class="space-y-3 pt-2">
+            <input id="registerName" placeholder="Agent name (e.g. NiaPay-Bot)" required
+              class="w-full rounded-md border border-ink-600 bg-ink-850 px-3 py-2 font-mono text-sm text-slate-200 placeholder:text-slate-600 focus:border-accent-400 focus:outline-none" />
+            <button type="submit" class="w-full rounded-md bg-accent-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent-400 disabled:opacity-50">Issue my API key</button>
+          </form>
+        </div>
+        <div id="keyResult" class="hidden rounded-xl border border-accent-500/50 bg-accent-500/10 p-6">
+          <p class="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-accent-400">Agent registered</p>
+          <div class="mt-3 space-y-2 font-mono text-sm">
+            <div class="flex items-center gap-2">
+              <code id="agentIdOut" class="min-w-0 flex-1 truncate rounded border border-ink-600 bg-ink-950 px-2 py-1 text-slate-200"></code>
+              <button data-copy="agentIdOut" class="rounded border border-ink-600 bg-ink-850 px-2 py-1 text-xs text-slate-300 transition hover:border-accent-400">Copy</button>
+            </div>
+            <div class="flex items-center gap-2">
+              <code id="apiKeyOut" class="min-w-0 flex-1 truncate rounded border border-ink-600 bg-ink-950 px-2 py-1 text-primary-300"></code>
+              <button data-copy="apiKeyOut" class="rounded border border-ink-600 bg-ink-850 px-2 py-1 text-xs text-slate-300 transition hover:border-accent-400">Copy</button>
+            </div>
           </div>
+          <p class="mt-3 text-[11px] leading-relaxed text-slate-500">This key is displayed only once. If you lose it, register the agent again. Use it as <code class="text-slate-400">Authorization: Bearer</code> on every audit call.</p>
+        </div>
+      </section>
 
-          <form id="interceptForm" class="space-y-3 rounded-xl border border-ink-700 bg-ink-900/80 p-5 shadow-dangerGlow">
-            <h2 class="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">Log Intercept</h2>
-            <input id="interceptBot" placeholder="Bot ID (auto)"
-              class="w-full rounded-md border border-ink-600 bg-ink-850 px-3 py-2 font-mono text-sm text-slate-200 placeholder:text-slate-600 focus:border-primary-400 focus:outline-none" />
-            <input id="interceptReason" placeholder="Violation reason"
-              class="w-full rounded-md border border-ink-600 bg-ink-850 px-3 py-2 font-mono text-sm text-slate-200 placeholder:text-slate-600 focus:border-primary-400 focus:outline-none" />
-            <button type="submit" class="w-full animate-ring rounded-md border border-danger-500/50 bg-danger-500/15 px-4 py-2 text-sm font-semibold text-danger-400 transition hover:bg-danger-500/25 disabled:opacity-50">Quarantine Agent</button>
-          </form>
-
-          <form id="tollForm" class="space-y-3 rounded-xl border border-ink-700 bg-ink-900/80 p-5 shadow-glow">
-            <h2 class="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">Transaction Toll</h2>
-            <input id="tollAmount" type="number" min="0" step="0.01" placeholder="Amount (KES)"
-              class="w-full rounded-md border border-ink-600 bg-ink-850 px-3 py-2 font-mono text-sm text-slate-200 placeholder:text-slate-600 focus:border-primary-400 focus:outline-none" />
-            <input id="tollYield" type="number" min="0" step="0.01" placeholder="Sovereign yield (USD)"
-              class="w-full rounded-md border border-ink-600 bg-ink-850 px-3 py-2 font-mono text-sm text-slate-200 placeholder:text-slate-600 focus:border-primary-400 focus:outline-none" />
-            <button type="submit" class="w-full rounded-md bg-primary-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-400 disabled:opacity-50">Settle Transaction</button>
-            <p class="text-[10px] leading-relaxed text-slate-600">Simulation only — 0.50 KES per approved audit. No live payment bridge.</p>
-          </form>
-        </section>
-
-        <!-- Threat radar -->
-        <section class="relative overflow-hidden rounded-xl border border-ink-700 bg-ink-900/80 lg:col-span-3">
-          <div class="pointer-events-none absolute inset-x-0 h-24 animate-scanline bg-gradient-to-b from-transparent via-primary-500/5 to-transparent"></div>
-          <div class="flex items-center justify-between border-b border-ink-700 px-5 py-4">
-            <h2 class="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">Threat Radar</h2>
-            <span id="radarCount" class="font-mono text-[10px] text-slate-500">no rogue traffic</span>
+      <!-- API reference -->
+      <section id="api" class="space-y-6">
+        <h3 class="text-center font-mono text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">API Reference</h3>
+        <div class="overflow-hidden rounded-xl border border-ink-700 bg-ink-900/80">
+          <table class="w-full text-left text-sm">
+            <thead class="border-b border-ink-700 font-mono text-[11px] uppercase tracking-[0.14em] text-slate-500">
+              <tr><th class="px-5 py-3">Endpoint</th><th class="px-5 py-3">Auth</th><th class="px-5 py-3">What it does</th></tr>
+            </thead>
+            <tbody class="divide-y divide-ink-700/60">
+              <tr class="hover:bg-ink-850/50"><td class="px-5 py-3 font-mono text-primary-300">POST /api/agents/register</td><td class="px-5 py-3 font-mono text-slate-400">none</td><td class="px-5 py-3 text-slate-300">Issue an agent ID + API key (shown once)</td></tr>
+              <tr class="hover:bg-ink-850/50"><td class="px-5 py-3 font-mono text-primary-300">POST /api/audit</td><td class="px-5 py-3 font-mono text-slate-400">bearer (optional)</td><td class="px-5 py-3 text-slate-300">The audit gate — APPROVED / BLOCKED verdict</td></tr>
+              <tr class="hover:bg-ink-850/50"><td class="px-5 py-3 font-mono text-primary-300">GET /api/agents/me</td><td class="px-5 py-3 font-mono text-slate-400">bearer</td><td class="px-5 py-3 text-slate-300">Your agent's usage counters</td></tr>
+              <tr class="hover:bg-ink-850/50"><td class="px-5 py-3 font-mono text-primary-300">GET /api/audit/recent</td><td class="px-5 py-3 font-mono text-slate-400">none</td><td class="px-5 py-3 text-slate-300">Last 15 verdicts from the immutable trail</td></tr>
+              <tr class="hover:bg-ink-850/50"><td class="px-5 py-3 font-mono text-primary-300">GET /api/network/stats</td><td class="px-5 py-3 font-mono text-slate-400">none</td><td class="px-5 py-3 text-slate-300">Live public network telemetry</td></tr>
+              <tr class="hover:bg-ink-850/50"><td class="px-5 py-3 font-mono text-primary-300">GET /api/config</td><td class="px-5 py-3 font-mono text-slate-400">none</td><td class="px-5 py-3 text-slate-300">Current policy limits (KES ceiling, toll, FX)</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="grid gap-4 lg:grid-cols-3">
+          <div class="space-y-2">
+            <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">cURL</p>
+            <pre class="overflow-x-auto rounded-lg border border-ink-700 bg-ink-950 p-4 font-mono text-[11px] leading-relaxed text-slate-300">curl -X POST https://aegis-agent-4u79.onrender.com/api/audit \
+  -H "Authorization: Bearer agk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"amount": 4500, "currency": "KES"}'</pre>
           </div>
-          <ul id="radarList" class="divide-y divide-ink-700/60"></ul>
-        </section>
-      </div>
+          <div class="space-y-2">
+            <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">Node.js</p>
+            <pre class="overflow-x-auto rounded-lg border border-ink-700 bg-ink-950 p-4 font-mono text-[11px] leading-relaxed text-slate-300">const res = await fetch(
+  "https://aegis-agent-4u79.onrender.com/api/audit",
+  { method: "POST",
+    headers: {
+      Authorization: "Bearer " + process.env.AEGIS_KEY,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      amount: 4500, currency: "KES",
+    }),
+  });
+const verdict = await res.json();
+if (verdict.status !== "APPROVED") throw new Error(verdict.reason);</pre>
+          </div>
+          <div class="space-y-2">
+            <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">Python</p>
+            <pre class="overflow-x-auto rounded-lg border border-ink-700 bg-ink-950 p-4 font-mono text-[11px] leading-relaxed text-slate-300">import os, requests
 
-      <!-- Audit trail -->
+verdict = requests.post(
+  "https://aegis-agent-4u79.onrender.com/api/audit",
+  headers={"Authorization": f"Bearer {os.environ['AEGIS_KEY']}"},
+  json={"amount": 4500, "currency": "KES"},
+).json()
+
+if verdict["status"] != "APPROVED":
+    raise RuntimeError(verdict["reason"])</pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- Live verdicts -->
       <section class="rounded-xl border border-ink-700 bg-ink-900/80">
         <div class="flex items-center justify-between border-b border-ink-700 px-5 py-4">
-          <h2 class="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">Immutable Audit Trail</h2>
-          <span class="font-mono text-[10px] text-slate-500">last 15 verdicts</span>
+          <h3 class="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">Live Verdict Feed</h3>
+          <span class="font-mono text-[10px] text-slate-500">last 8 verdicts · immutable trail</span>
         </div>
         <ul id="trailList" class="divide-y divide-ink-700/60"></ul>
       </section>
 
-      <footer id="footer" class="border-t border-ink-700 pt-4 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-slate-600">
-        environment sync pending
+      <footer id="footer" class="border-t border-ink-700 pt-6 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-slate-600">
+        AEGIS policy gateway · fail-closed by design · <a href="/console" class="underline decoration-dotted hover:text-primary-300">operator console</a>
       </footer>
     </main>
 
-    <script src="/app.js"></script>
+    <script src="/landing.js"></script>
   </body>
 </html>

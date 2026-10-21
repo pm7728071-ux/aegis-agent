@@ -1,26 +1,65 @@
-# AEGIS//AGENT SDK
+# Aegis — The Policy Gate for Autonomous Agents
 
-Live gateway & security console: https://aegis-agent-4u79.onrender.com
+Every transaction an autonomous agent attempts is checked against a live
+policy limit **before** it touches payment rails, and the verdict is written
+to an immutable audit trail. If the gate is unreachable, it **blocks by
+default** — money never passes silently.
 
-Audit endpoint: POST https://aegis-agent-4u79.onrender.com/api/audit
-(the gateway root also accepts POST — this is what the SDK sends)
+**Live gateway:** https://aegis-agent-4u79.onrender.com
 
-Payload: `{"agentId":"AlphaBot","amount":150,"currency":"KES","mpesaRecipient":"254712345678"}`
+- `/` — product page: live network stats, playground, self-service API key
+- `/console` — operator console (intercept + settlement, admin-key protected)
 
-Verdict: `{"status":"APPROVED"|"BLOCKED","reason":"..."}` — policy limits, currency
-and M-Pesa recipients are validated, verdicts persist to the audit trail, and
-any gateway fault blocks the transaction by default. Policy limits live in the
-`policy` object on `/api/config` and can be tightened via POST `/api/config`
-with `{"maxAmountLimitKES": 7500}`.
+## Use it (60 seconds)
 
-## Quick start
+```bash
+# 1. Register an agent — key shown exactly once
+curl -X POST https://aegis-agent-4u79.onrender.com/api/agents/register \
+  -H 'Content-Type: application/json' -d '{"name": "MyAgent"}'
 
-```javascript
-const AegisClient = require('./aegis-sdk.js');
-const agent = new AegisClient('AlphaBot');
-agent.auditTransaction(150, 'KES').then(console.log);
+# 2. Gate every transaction — act only on APPROVED
+curl -X POST https://aegis-agent-4u79.onrender.com/api/audit \
+  -H "Authorization: Bearer agk_YOUR_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"amount": 4500, "currency": "KES"}'
 ```
 
-Audits approve or block KES and USD transactions against policy limits. Network failures block by default. The M-Pesa Settle Link is a simulation at 0.50 KES per audit; no real payment bridge or funds transfer is enabled. The radar uses mock traffic.
+Sandbox calls (no key) are welcome — rate-limited to 20/min per IP and fully
+audited. Registered agents: 120/min, per-agent attribution and usage counters
+via `GET /api/agents/me`.
 
-Run `node test-aegis.js` for a non-mutating invalid-payload endpoint check. After publication, replace the preview origin in the SDK, test script and this document with the verified published origin. Legacy API route shapes remain unchanged.
+## Endpoints
+
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `POST /api/agents/register` | none | Issue agent ID + API key (stored as SHA-256 hash) |
+| `POST /api/audit` | bearer (optional) | The audit gate — APPROVED / BLOCKED |
+| `GET /api/agents/me` | bearer | Agent usage counters |
+| `GET /api/audit/recent` | none | Last 15 verdicts (immutable trail) |
+| `GET /api/network/stats` | none | Public telemetry |
+| `GET /api/config` | none | Live policy limits |
+| `POST /api/config`, `POST /api/intercept`, `POST /api/transaction/toll` | admin key | Operator rail (fail-closed) |
+
+## Security model
+
+- **Fail-closed:** any database or policy fault → verdict is BLOCKED, fast.
+- **Keys are hashed:** only SHA-256 hashes are stored; keys are shown once.
+- **Rate limits:** sandbox 20/min per IP; registration 10/hour per IP; live agents 120/min.
+- **Admin rail:** intercept / settlement / policy edits require `ADMIN_API_KEY` (set in the host env).
+
+## Environment variables
+
+- `MONGO_URI` — MongoDB Atlas connection string (required)
+- `ADMIN_API_KEY` — operator key for the admin rail
+- `POLICY_MAX_TX_KES` (default 50000), `POLICY_APPROVAL_THRESHOLD_KES` (20000), `FX_RATE_KES_PER_USD` (130)
+
+## Run locally
+
+```bash
+npm install
+echo "MONGO_URI=mongodb+srv://..." > .env
+node engine.js
+```
+
+Build-free by design: the frontend is static `index.html` + `landing.js` +
+`console.html` + `console.js`, served by the same Express process.

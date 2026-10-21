@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <title>Aegis — Operator Console</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+              mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+            },
+            colors: {
+              ink: {
+                950: '#070a14', 900: '#0b101f', 850: '#0f1629', 800: '#141d35',
+                700: '#1c2745', 600: '#273457', 500: '#34426b',
+              },
+              primary: {
+                300: '#61bdff', 400: '#2aa4ff', 500: '#0a8aff', 600: '#0069db',
+              },
+              accent: { 400: '#22d3a4', 500: '#10b981' },
+              warn: { 400: '#fbbf24' },
+              danger: { 400: '#fb7185', 500: '#ef4444' },
+            },
+            boxShadow: {
+              glow: '0 0 0 1px rgba(42,164,255,0.15), 0 8px 30px -8px rgba(10,138,255,0.35)',
+              dangerGlow: '0 0 0 1px rgba(239,68,68,0.18), 0 8px 30px -8px rgba(239,68,68,0.35)',
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      @keyframes pulseDot { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .5; transform: scale(.85); } }
+      @keyframes slideIn { 0% { opacity: 0; transform: translateY(6px); } 100% { opacity: 1; transform: translateY(0); } }
+      @keyframes scanline { 0% { transform: translateY(-100%); } 100% { transform: translateY(100%); } }
+      @keyframes countPop { 0% { transform: scale(1); } 40% { transform: scale(1.18); } 100% { transform: scale(1); } }
+      @keyframes ring { 0% { box-shadow: 0 0 0 0 rgba(34,211,164,.45); } 70% { box-shadow: 0 0 0 8px rgba(34,211,164,0); } 100% { box-shadow: 0 0 0 0 rgba(34,211,164,0); } }
+      .animate-pulseDot { animation: pulseDot 1.8s ease-in-out infinite; }
+      .animate-slideIn { animation: slideIn .25s ease-out; }
+      .animate-scanline { animation: scanline 3.5s linear infinite; }
+      .animate-countPop { animation: countPop .45s ease-out; }
+      .animate-ring { animation: ring 1.4s ease-out; }
+      html { scrollbar-color: #1c2745 #070a14; }
+    </style>
+  </head>
+  <body class="bg-ink-950 text-slate-200 antialiased">
+    <!-- Top console bar -->
+    <header class="sticky top-0 z-10 border-b border-ink-700 bg-ink-900/90 backdrop-blur">
+      <div class="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
+        <div class="flex items-center gap-3">
+          <div class="flex h-9 w-9 items-center justify-center rounded-lg border border-primary-500/40 bg-ink-800 shadow-glow">
+            <span class="text-primary-300">🛡️</span>
+          </div>
+          <div>
+            <h1 class="text-sm font-semibold tracking-wide text-slate-100">Operator Console</h1>
+            <p class="text-[10px] uppercase tracking-[0.22em] text-slate-500 font-mono"><a href="/" class="underline decoration-dotted hover:text-primary-300">← aegis gateway home</a></p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 rounded-full border border-ink-600 bg-ink-850 px-4 py-1.5">
+          <span id="statusDot" class="h-2 w-2 rounded-full bg-danger-400"></span>
+          <span id="statusText" class="text-xs font-mono text-slate-300">LINK DOWN</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="mx-auto max-w-6xl space-y-8 px-6 py-8">
+      <div id="errorBanner" class="hidden rounded-lg border border-danger-500/40 bg-danger-500/10 px-4 py-3 font-mono text-sm text-danger-400 shadow-dangerGlow"></div>
+      <div id="flash" class="hidden rounded-lg px-4 py-3 font-mono text-sm animate-slideIn"></div>
+
+      <!-- Telemetry tiles -->
+      <section class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="rounded-xl border border-ink-700 bg-ink-900/80 p-5 shadow-glow animate-slideIn">
+          <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">Tasks Audited</p>
+          <p id="tileTasks" class="mt-2 font-mono text-3xl font-semibold text-primary-300 animate-countPop">····</p>
+        </div>
+        <div class="rounded-xl border border-ink-700 bg-ink-900/80 p-5 shadow-glow animate-slideIn">
+          <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">Revenue — KES</p>
+          <p id="tileRevenue" class="mt-2 font-mono text-3xl font-semibold text-warn-400 animate-countPop">····</p>
+        </div>
+        <div class="rounded-xl border border-ink-700 bg-ink-900/80 p-5 shadow-glow animate-slideIn">
+          <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">Sovereign Yield — USD</p>
+          <p id="tileYield" class="mt-2 font-mono text-3xl font-semibold text-accent-400 animate-countPop">····</p>
+        </div>
+        <div class="rounded-xl border border-ink-700 bg-ink-900/80 p-5 shadow-glow animate-slideIn">
+          <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">Policy Ceiling</p>
+          <p id="tilePolicy" class="mt-2 font-mono text-3xl font-semibold text-primary-300 animate-countPop">····</p>
+        </div>
+      </section>
+
+      <div class="grid gap-6 lg:grid-cols-5">
+        <!-- Operator controls -->
+        <section class="space-y-6 lg:col-span-2">
+          <form id="auditForm" class="space-y-3 rounded-xl border border-primary-500/30 bg-ink-900/80 p-5 shadow-glow">
+            <h2 class="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">Transaction Audit Gate</h2>
+            <input id="auditAgent" placeholder="Agent ID (e.g. AlphaBot)"
+              class="w-full rounded-md border border-ink-600 bg-ink-850 px-3 py-2 font-mono text-sm text-slate-200 placeholder:text-slate-600 focus:border-primary-400 focus:outline-none" />
+            <div class="flex gap-3">
+              <input id="auditAmount" type="number" min="0" step="0.01" required placeholder="Amount"
+                class="w-full rounded-md border border-ink-600 bg-ink-850 px-3 py-2 font-mono text-sm text-slate-200 placeholder:text-slate-600 focus:border-primary-400 focus:outline-none" />
+              <select id="auditCurrency"
+                class="rounded-md border border-ink-600 bg-ink-850 px-3 py-2 font-mono text-sm text-slate-200 focus:border-primary-400 focus:outline-none">
+                <option value="KES">KES</option>
+                <option value="USD">USD</option>
+              </select>
+            </div>
+            <button type="submit" class="w-full rounded-md bg-primary-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-400 disabled:opacity-50">Audit Transaction</button>
+            <p class="text-[10px] leading-relaxed text-slate-600">Sandbox mode (no key). Registered agents send their API key instead. Failures block by default.</p>
+          </form>
+
+          <div id="verdict" class="hidden rounded-xl border p-4 animate-slideIn">
+            <p id="verdictTitle" class="font-mono text-sm font-semibold"></p>
+            <p id="verdictReason" class="mt-1 text-xs text-slate-400"></p>
+            <p id="verdictMeta" class="mt-1 font-mono text-[10px] text-slate-500"></p>
+          </div>
+
+          <div class="space-y-2 rounded-xl border border-ink-700 bg-ink-900/80 p-5">
+            <h2 class="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">Operator Admin Key</h2>
+            <input id="adminKey" type="password" placeholder="agk-... admin key from Render env"
+              class="w-full rounded-md border border-ink-600 bg-ink-850 px-3 py-2 font-mono text-sm text-slate-200 placeholder:text-slate-600 focus:border-primary-400 focus:outline-none" />
+            <p class="text-[10px] leading-relaxed text-slate-600">Required for intercept and settlement. Stored only in this browser.</p>
+          </div>
+
+          <form id="interceptForm" class="space-y-3 rounded-xl border border-ink-700 bg-ink-900/80 p-5 shadow-dangerGlow">
+            <h2 class="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">Log Intercept</h2>
+            <input id="interceptBot" placeholder="Bot ID (auto)"
+              class="w-full rounded-md border border-ink-600 bg-ink-850 px-3 py-2 font-mono text-sm text-slate-200 placeholder:text-slate-600 focus:border-primary-400 focus:outline-none" />
+            <input id="interceptReason" placeholder="Violation reason"
+              class="w-full rounded-md border border-ink-600 bg-ink-850 px-3 py-2 font-mono text-sm text-slate-200 placeholder:text-slate-600 focus:border-primary-400 focus:outline-none" />
+            <button type="submit" class="w-full animate-ring rounded-md border border-danger-500/50 bg-danger-500/15 px-4 py-2 text-sm font-semibold text-danger-400 transition hover:bg-danger-500/25 disabled:opacity-50">Quarantine Agent</button>
+          </form>
+
+          <form id="tollForm" class="space-y-3 rounded-xl border border-ink-700 bg-ink-900/80 p-5 shadow-glow">
+            <h2 class="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">Transaction Toll</h2>
+            <input id="tollAmount" type="number" min="0" step="0.01" placeholder="Amount (KES)"
+              class="w-full rounded-md border border-ink-600 bg-ink-850 px-3 py-2 font-mono text-sm text-slate-200 placeholder:text-slate-600 focus:border-primary-400 focus:outline-none" />
+            <input id="tollYield" type="number" min="0" step="0.01" placeholder="Sovereign yield (USD)"
+              class="w-full rounded-md border border-ink-600 bg-ink-850 px-3 py-2 font-mono text-sm text-slate-200 placeholder:text-slate-600 focus:border-primary-400 focus:outline-none" />
+            <button type="submit" class="w-full rounded-md bg-primary-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-400 disabled:opacity-50">Settle Transaction</button>
+            <p class="text-[10px] leading-relaxed text-slate-600">Metered toll — 0.50 KES per approved audit. Live payment-rail settlement on request.</p>
+          </form>
+        </section>
+
+        <!-- Threat radar -->
+        <section class="relative overflow-hidden rounded-xl border border-ink-700 bg-ink-900/80 lg:col-span-3">
+          <div class="pointer-events-none absolute inset-x-0 h-24 animate-scanline bg-gradient-to-b from-transparent via-primary-500/5 to-transparent"></div>
+          <div class="flex items-center justify-between border-b border-ink-700 px-5 py-4">
+            <h2 class="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">Threat Radar</h2>
+            <span id="radarCount" class="font-mono text-[10px] text-slate-500">no rogue traffic</span>
+          </div>
+          <ul id="radarList" class="divide-y divide-ink-700/60"></ul>
+        </section>
+      </div>
+
+      <!-- Audit trail -->
+      <section class="rounded-xl border border-ink-700 bg-ink-900/80">
+        <div class="flex items-center justify-between border-b border-ink-700 px-5 py-4">
+          <h2 class="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">Immutable Audit Trail</h2>
+          <span class="font-mono text-[10px] text-slate-500">last 15 verdicts</span>
+        </div>
+        <ul id="trailList" class="divide-y divide-ink-700/60"></ul>
+      </section>
+
+      <footer id="footer" class="border-t border-ink-700 pt-4 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-slate-600">
+        environment sync pending
+      </footer>
+    </main>
+
+    <script src="/console.js"></script>
+  </body>
+</html>

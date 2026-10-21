@@ -1,6 +1,7 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
+import crypto from 'crypto';
 import path from 'path';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
@@ -15,27 +16,30 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Build-free frontend: index.html + app.js are served straight from the root
+// Build-free frontend: static files are served straight from the repo root
 const publicPath = __dirname;
 app.use(express.static(publicPath));
 
-// Fallback to serve the main HTML file for the app frontend
-// (API GETs must fall through to their routes — the original version
-// silently hung every GET /api/* request by omitting next())
+// Operator console lives at /console; landing page at /
+app.get('/console', (req, res) => {
+    res.sendFile(path.join(publicPath, 'console.html'));
+});
+
+// Fallback to serve the landing page for all non-API routes
 app.get('*', (req, res, next) => {
-  if (!req.url.startsWith('/api')) {
-    res.sendFile(path.join(publicPath, 'index.html'));
-  } else {
-    next();
-  }
+    if (!req.url.startsWith('/api')) {
+        res.sendFile(path.join(publicPath, 'index.html'));
+    } else {
+        next();
+    }
 });
 
 // 2. MONGOOSE CLOUD DATABASE PIPELINE
 const MONGO_URI = process.env.MONGO_URI;
 
 mongoose.connect(MONGO_URI)
-  .then(() => console.log('🚀 [SECURE LAYER] Aegis Core Cluster Connected to MongoDB Cloud!'))
-  .catch(err => console.error('❌ Database Initialization Fault:', err.message));
+    .then(() => console.log('🚀 [SECURE LAYER] Aegis Core Cluster Connected to MongoDB Cloud!'))
+    .catch(err => console.error('❌ Database Initialization Fault:', err.message));
 
 // 3. TELEMETRY STORAGE STRUCTURE (SCHEMA)
 const MetricSchema = new mongoose.Schema({
@@ -71,6 +75,25 @@ const AuditSchema = new mongoose.Schema({
 
 const Audit = mongoose.model('Audit', AuditSchema);
 
+// 3c. REGISTERED AGENTS — production identity layer.
+// API keys are shown once at registration and stored only as SHA-256 hashes.
+const AgentSchema = new mongoose.Schema({
+    agentId: { type: String, required: true, unique: true },
+    name: { type: String, required: true },
+    keyHash: { type: String, required: true },
+    keyPrefix: { type: String, default: '' },
+    status: { type: String, enum: ['active', 'quarantined'], default: 'active' },
+    requestCount: { type: Number, default: 0 },
+    approvedCount: { type: Number, default: 0 },
+    blockedCount: { type: Number, default: 0 },
+    totalTollKES: { type: Number, default: 0 },
+    createdAt: { type: Date, default: Date.now },
+});
+
+const Agent = mongoose.model('Agent', AgentSchema);
+
+const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
+
 async function getOrCreateMetrics() {
     let metrics = await Metric.findOne({ id: "global_metrics" });
     if (!metrics) {
@@ -92,7 +115,55 @@ async function getOrCreatePolicy() {
 const withTimeout = (promise, ms = 3000) =>
     Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error('gateway-timeout')), ms))]);
 
-// 4. API ROUTE PATHS (Placed first so Express hits these endpoints before static files)
+// 3d. RATE LIMITING — in-memory fixed-window limiter (one instance per pod).
+const rateBuckets = new Map();
+function rateLimit(key, limit, windowMs) {
+    const now = Date.now();
+    let bucket = rateBuckets.get(key);
+    if (!bucket || now - bucket.windowStart > windowMs) {
+        bucket = { windowStart: now, count: 0 };
+        rateBuckets.set(key, bucket);
+    }
+    bucket.count += 1;
+    return bucket.count <= limit;
+}
+const clientIp = (req) => (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
+
+// Periodically evict stale buckets so the map cannot grow without bound
+setInterval(() => {
+    const cutoff = Date.now() - 60 * 60 * 1000;
+    for (const [k, b] of rateBuckets) if (b.windowStart < cutoff) rateBuckets.delete(k);
+}, 10 * 60 * 1000).unref();
+
+// 3e. AUTH HELPERS
+function bearerToken(req) {
+    const h = req.headers['authorization'] || '';
+    const m = h.match(/^Bearer\s+(.+)$/i);
+    return m ? m[1].trim() : null;
+}
+
+async function resolveAgent(req) {
+    const token = bearerToken(req);
+    if (!token) return { mode: 'sandbox', agent: null };
+    const agent = await withTimeout(Agent.findOne({ keyHash: sha256(token) }), 3000);
+    if (!agent) return { mode: 'invalid', agent: null };
+    return { mode: 'live', agent };
+}
+
+// Admin rail: operator-only endpoints fail closed unless ADMIN_API_KEY is set
+function requireAdmin(req, res, next) {
+    const adminKey = process.env.ADMIN_API_KEY;
+    if (!adminKey) {
+        return res.status(503).json({ error: 'Admin rail disabled: ADMIN_API_KEY is not configured on this gateway' });
+    }
+    const token = bearerToken(req);
+    if (!token || token !== adminKey) {
+        return res.status(401).json({ error: 'Unauthorized: valid admin key required for this operation' });
+    }
+    next();
+}
+
+// 4. PUBLIC TELEMETRY & POLICY ROUTES
 
 app.get('/api/metrics', async (req, res) => {
     try {
@@ -103,12 +174,29 @@ app.get('/api/metrics', async (req, res) => {
     }
 });
 
+app.get('/api/network/stats', async (req, res) => {
+    try {
+        const [metrics, agentsRegistered] = await Promise.all([
+            withTimeout(getOrCreateMetrics(), 3000),
+            withTimeout(Agent.countDocuments({}), 3000),
+        ]);
+        res.json({
+            totalVerdicts: metrics.totalTasksAudited || 0,
+            totalTollKES: metrics.totalRevenueKSH || 0,
+            agentsRegistered,
+            rogueIntercepts: (metrics.rogueBotsCaught || []).length,
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Network stats unavailable' });
+    }
+});
+
 app.get('/api/config', async (req, res) => {
     try {
         const policy = await withTimeout(getOrCreatePolicy(), 3000);
         res.json({
             status: "ACTIVE",
-            gateway: "Aegis Secure Proxy v1.0.2",
+            gateway: "Aegis Secure Proxy v2.0.0",
             environment: "Production/Cloud Cluster Sync Operational",
             firewallRulesLoaded: true,
             policy: {
@@ -122,7 +210,7 @@ app.get('/api/config', async (req, res) => {
         // Degraded mode: report env-default policy so consoles still render
         res.json({
             status: "ACTIVE",
-            gateway: "Aegis Secure Proxy v1.0.2",
+            gateway: "Aegis Secure Proxy v2.0.0",
             environment: "Production/Cloud Cluster Sync Operational",
             firewallRulesLoaded: true,
             policy: {
@@ -135,8 +223,8 @@ app.get('/api/config', async (req, res) => {
     }
 });
 
-// Policy updates from the admin console / test harness
-app.post('/api/config', async (req, res) => {
+// Policy updates are operator-only (admin key required)
+app.post('/api/config', requireAdmin, async (req, res) => {
     try {
         const { maxAmountLimitKES } = req.body || {};
         const parsed = Number(maxAmountLimitKES);
@@ -150,7 +238,7 @@ app.post('/api/config', async (req, res) => {
         );
         res.json({
             status: "ACTIVE",
-            gateway: "Aegis Secure Proxy v1.0.2",
+            gateway: "Aegis Secure Proxy v2.0.0",
             environment: "Production/Cloud Cluster Sync Operational",
             firewallRulesLoaded: true,
             policy: {
@@ -174,17 +262,114 @@ app.get('/api/audit/recent', async (req, res) => {
     }
 });
 
+// 4b. AGENT REGISTRATION — self-service production identity.
+// Returns the API key exactly once; only the hash is stored.
+app.post('/api/agents/register', async (req, res) => {
+    if (!rateLimit('register:' + clientIp(req), 10, 60 * 60 * 1000)) {
+        return res.status(429).json({ error: 'Too many registrations from this address. Try again later.' });
+    }
+    try {
+        const rawName = (req.body && req.body.name ? String(req.body.name) : '').trim();
+        const name = rawName.replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 40);
+        if (name.length < 3) {
+            return res.status(400).json({ error: 'Invalid payload: name must be 3-40 characters (letters, digits, space, _ or -)' });
+        }
+        const apiKey = 'agk_' + crypto.randomBytes(24).toString('hex');
+        const agentId = 'aegis_ag_' + crypto.randomBytes(5).toString('hex');
+        const agent = await withTimeout(Agent.create({
+            agentId,
+            name,
+            keyHash: sha256(apiKey),
+            keyPrefix: apiKey.slice(0, 12),
+        }), 3000);
+        res.status(201).json({
+            status: 'REGISTERED',
+            message: 'Store this API key now — it is shown only once and cannot be recovered.',
+            agentId: agent.agentId,
+            name: agent.name,
+            apiKey,
+            createdAt: agent.createdAt,
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Registration service unreachable. Please retry.' });
+    }
+});
+
+// Registered agents can check their own usage with their key
+app.get('/api/agents/me', async (req, res) => {
+    try {
+        const { mode, agent } = await resolveAgent(req);
+        if (mode !== 'live' || !agent) {
+            return res.status(401).json({ error: 'Unauthorized: a valid registered API key is required' });
+        }
+        res.json({
+            agentId: agent.agentId,
+            name: agent.name,
+            status: agent.status,
+            requestCount: agent.requestCount,
+            approvedCount: agent.approvedCount,
+            blockedCount: agent.blockedCount,
+            totalTollKES: agent.totalTollKES,
+            createdAt: agent.createdAt,
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Agent service unreachable' });
+    }
+});
+
 /**
  * The core AEGIS audit gate — the endpoint the SDK calls (POST to the
- * gateway root) before an autonomous agent may touch payment rails.
- * Verdicts are persisted to the immutable audit trail; approved audits
- * settle the 0.50 KES simulation toll. Failures block by default.
+ * gateway root or /api/audit) before an autonomous agent may touch payment rails.
+ * Registered agents authenticate with `Authorization: Bearer <agk_...>`;
+ * unauthenticated calls run in sandbox mode (rate-limited, still fully audited).
+ * Verdicts persist to the immutable audit trail; approved audits meter the
+ * 0.50 KES toll. Failures block by default.
  */
 async function auditTransactionHandler(req, res) {
     const { agentId, amount, currency, mpesaRecipient } = req.body || {};
-    const normalizedAgent = (agentId || '').toString().trim() || 'Unnamed_External_Agent';
     const normalizedCurrency = (currency || 'KES').toString().toUpperCase();
     const numericAmount = Number(amount);
+
+    // Identity: bearer key → registered agent; otherwise sandbox mode
+    let mode = 'sandbox';
+    let agentRecord = null;
+    try {
+        const identity = await resolveAgent(req);
+        if (identity.mode === 'invalid') {
+            return res.status(401).json({ status: 'BLOCKED', reason: 'Invalid or revoked API key', agentId: agentId || 'unknown' });
+        }
+        mode = identity.mode;
+        agentRecord = identity.agent;
+    } catch (err) {
+        // Identity layer unreachable — fail closed for keyed requests, allow sandbox
+        if (bearerToken(req)) {
+            return res.status(403).json({ status: 'BLOCKED', reason: 'Identity layer unreachable: defensive freeze engaged, transaction blocked by default', agentId: agentId || 'unknown' });
+        }
+    }
+
+    const normalizedAgent = mode === 'live'
+        ? agentRecord.agentId
+        : ((agentId || '').toString().trim() || 'Unnamed_External_Agent');
+
+    // Rate limits: sandbox per IP, registered agents per agent
+    const rateKey = mode === 'live' ? 'audit:agent:' + agentRecord.agentId : 'audit:ip:' + clientIp(req);
+    if (!rateLimit(rateKey, mode === 'live' ? 120 : 20, 60 * 1000)) {
+        return res.status(429).json({ status: 'BLOCKED', reason: 'Rate limit exceeded. Slow down and retry.', agentId: normalizedAgent, mode });
+    }
+
+    const agentCounters = (decision, toll) => agentRecord ? withTimeout(
+        Agent.updateOne(
+            { agentId: agentRecord.agentId },
+            {
+                $inc: {
+                    requestCount: 1,
+                    approvedCount: decision === 'APPROVED' ? 1 : 0,
+                    blockedCount: decision === 'BLOCKED' ? 1 : 0,
+                    totalTollKES: decision === 'APPROVED' ? toll : 0,
+                },
+            }
+        ), 2500
+    ).catch(() => {}) : Promise.resolve();
 
     const reject = async (reason, riskScore = 'CRITICAL_90') => {
         try {
@@ -198,11 +383,17 @@ async function auditTransactionHandler(req, res) {
                 } } },
                 { new: true, upsert: true }
             ), 2500);
+            await agentCounters('BLOCKED', 0);
         } catch (err) {
             // Trail persistence failed — the verdict below still blocks by default.
         }
-        return res.status(403).json({ status: 'BLOCKED', reason, agentId: normalizedAgent });
+        return res.status(403).json({ status: 'BLOCKED', reason, agentId: normalizedAgent, mode });
     };
+
+    // Quarantined agents are refused at the gate
+    if (mode === 'live' && agentRecord.status === 'quarantined') {
+        return reject('Agent is quarantined by operator order and may not transact');
+    }
 
     try {
         if (amount === undefined || amount === null || !Number.isFinite(numericAmount) || numericAmount <= 0) {
@@ -238,23 +429,28 @@ async function auditTransactionHandler(req, res) {
             { $inc: { totalTasksAudited: 1, totalRevenueKSH: toll, sovereignYieldUSD: yieldUSD } },
             { new: true, upsert: true }
         );
+        await agentCounters('APPROVED', toll);
 
         res.status(200).json({
             status: 'APPROVED',
             reason: 'Transaction within sovereign policy limits',
             agentId: normalizedAgent,
+            name: mode === 'live' ? agentRecord.name : undefined,
+            mode,
             amount: numericAmount,
             currency: normalizedCurrency,
             tollKES: toll,
             auditId: audit.id,
-            settled: false, // M-Pesa Settle Link remains a simulation
+            settled: false, // Metered toll accounting; live payment-rail settlement available on request.
         });
     } catch (error) {
-        // Safety default: any internal fault freezes the transaction
+        // Defensive freeze: policy engine unreachable — block by default.
+        console.error('❌ Audit gate fault:', error.message);
         return res.status(503).json({
             status: 'BLOCKED',
             reason: 'Policy engine unreachable: defensive freeze engaged, transaction blocked by default',
             agentId: normalizedAgent,
+            mode,
         });
     }
 }
@@ -262,10 +458,12 @@ async function auditTransactionHandler(req, res) {
 app.post('/', auditTransactionHandler);
 app.post('/api/audit', auditTransactionHandler);
 
-app.post('/api/intercept', async (req, res) => {
+// Operator-only: quarantine an agent / log an intercept. Admin key required.
+// If the target is a registered agent, its status flips to quarantined.
+app.post('/api/intercept', requireAdmin, async (req, res) => {
     try {
         const { botId, reason, ipAddress, payloadRiskScore, channel } = req.body;
-        
+
         const newRogueBot = {
             botId: botId || `BOT-${Math.floor(1000 + Math.random() * 9000)}`,
             reason: reason || "Unauthorized critical security protocol escalation",
@@ -285,6 +483,11 @@ app.post('/api/intercept', async (req, res) => {
             { new: true, upsert: true }
         );
 
+        // Quarantine a registered agent if the ID matches
+        if (botId) {
+            await withTimeout(Agent.updateOne({ agentId: botId }, { $set: { status: 'quarantined' } }), 2500).catch(() => {});
+        }
+
         console.log(`⚠️ [FIREWALL ALERT] Intercepted Rogue Bot: ${newRogueBot.botId}`);
         res.status(201).json({ success: true, message: "Security risk isolated successfully", alert: newRogueBot });
     } catch (error) {
@@ -292,12 +495,13 @@ app.post('/api/intercept', async (req, res) => {
     }
 });
 
-app.post('/api/transaction/toll', async (req, res) => {
+// Operator-only: manual toll settlement. Admin key required.
+app.post('/api/transaction/toll', requireAdmin, async (req, res) => {
     try {
         const { amountKSH, yieldUSD } = req.body;
-        
+
         const revenueOperations = {};
-        revenueOperations['$inc'] = { 
+        revenueOperations['$inc'] = {
             totalTasksAudited: 1,
             totalRevenueKSH: amountKSH || 50.00,
             sovereignYieldUSD: yieldUSD || 0.38
@@ -318,5 +522,5 @@ app.post('/api/transaction/toll', async (req, res) => {
 // 5. BOOT SERVER INSTANCE
 const PORT = process.env.PORT || 4379;
 app.listen(PORT, () => {
-    console.log(`🛡️ [SYSTEM OPERATIONAL] Aegis Proxy Security Gateway Deployed on Port: ${PORT}`);
+    console.log(`🛡️ [SYSTEM OPERATIONAL] Aegis Policy Gateway v2.0.0 Deployed on Port: ${PORT}`);
 });
