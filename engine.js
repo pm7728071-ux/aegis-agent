@@ -16,6 +16,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Never let browsers serve a stale product page: HTML/JS must revalidate
+app.use((req, res, next) => {
+  if (/\.(html|js)$/i.test(req.path) || req.path === '/' || req.path === '/console') {
+    res.setHeader('Cache-Control', 'no-cache');
+  }
+  next();
+});
+
 // Build-free frontend: static files are served straight from the repo root
 const publicPath = __dirname;
 app.use(express.static(publicPath));
