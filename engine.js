@@ -2,7 +2,6 @@ import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import path from 'path';
-import fs from 'fs';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 
@@ -16,9 +15,8 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Serve the built app when present, otherwise fall back to the repo root
-const distPath = path.join(__dirname, 'dist');
-const publicPath = fs.existsSync(distPath) ? distPath : __dirname;
+// Build-free frontend: index.html + app.js are served straight from the root
+const publicPath = __dirname;
 app.use(express.static(publicPath));
 
 // Fallback to serve the main HTML file for the app frontend
