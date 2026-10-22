@@ -46,16 +46,7 @@ app.get('/console', (req, res) => {
     res.sendFile(path.join(publicPath, 'console.html'));
 });
 
-// Fallback to serve the landing page for all non-API routes
-app.get('*', (req, res, next) => {
-    if (!req.url.startsWith('/api')) {
-        res.sendFile(path.join(publicPath, 'index.html'));
-    } else {
-        next();
-    }
-});
-
-// Health probe must be registered before the page fallback below.
+// Health probe — registered before the page fallback so it answers JSON.
 const VERSION = '2.1.0';
 app.get('/health', (req, res) => {
     res.json({
@@ -65,6 +56,15 @@ app.get('/health', (req, res) => {
         dbState: ['disconnected', 'connected', 'connecting', 'disconnecting'][mongoose.connection.readyState] || 'unknown',
         ts: new Date().toISOString(),
     });
+});
+
+// Fallback to serve the landing page for all non-API routes
+app.get('*', (req, res, next) => {
+    if (!req.url.startsWith('/api')) {
+        res.sendFile(path.join(publicPath, 'index.html'));
+    } else {
+        next();
+    }
 });
 
 // 2. MONGOOSE CLOUD DATABASE PIPELINE
@@ -1025,7 +1025,13 @@ app.use((req, res) => {
 app.use((err, req, res, next) => {
     console.error(`❌ [${req.id}] Unhandled route fault:`, err.message);
     if (res.headersSent) return;
-    res.status(500).json({ error: 'Internal gateway fault — nothing settled, nothing authorized', requestId: req.id });
+    const code = err.statusCode || err.status || 500;
+    res.status(code).json({
+        error: code === 413
+            ? 'Payload too large — the gateway accepts request bodies up to 100 KB'
+            : 'Internal gateway fault — nothing settled, nothing authorized',
+        requestId: req.id,
+    });
 });
 
 // 6. BOOT SERVER INSTANCE
