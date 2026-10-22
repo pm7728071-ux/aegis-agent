@@ -225,10 +225,18 @@ const AuditSchema = new mongoose.Schema({
     decision: { type: String, enum: ['APPROVED', 'BLOCKED'], required: true },
     reason: { type: String, default: '' },
     tollKES: { type: Number, default: 0 },
+    receiptHash: { type: String, default: '' },
     timestamp: { type: Date, default: Date.now },
 });
 
 const Audit = mongoose.model('Audit', AuditSchema);
+
+// Receipt signing: every decision gets a tamper-evident hash, recomputable by anyone.
+const receiptKey = crypto.createHmac('sha256', process.env.ADMIN_API_KEY || 'aegis-local-dev').update('aegis-receipt-v1').digest();
+const receiptHashFor = (a) => crypto.createHmac('sha256', receiptKey).update(
+    [a.agentId, a.amount, a.currency, a.decision, a.reason, a.tollKES, a._id.toString()].join('|')
+).digest('hex');
+const receiptVerify = (a) => a && a.receiptHash && a.receiptHash === receiptHashFor(a);
 
 // 3c. REGISTERED AGENTS — production identity layer.
 // API keys are shown once at registration and stored only as SHA-256 hashes.
@@ -242,6 +250,7 @@ const AgentSchema = new mongoose.Schema({
     approvedCount: { type: Number, default: 0 },
     blockedCount: { type: Number, default: 0 },
     totalTollKES: { type: Number, default: 0 },
+    webhookUrl: { type: String, default: '' },
     createdAt: { type: Date, default: Date.now },
 });
 
@@ -417,6 +426,27 @@ async function resolveAgent(req) {
 }
 
 // Admin rail: operator-only endpoints fail closed unless ADMIN_API_KEY is set
+// Fire-and-forget signed verdict events to an agent's registered webhook (3s budget, never blocks the verdict).
+async function deliverVerdictWebhook(agent, payload) {
+    if (!agent || !agent.webhookUrl || !/^https:\/\//.test(agent.webhookUrl)) return;
+    const event = { event: 'verdict.created', data: payload, ts: new Date().toISOString() };
+    const signature = 'sha256=' + crypto.createHmac('sha256', receiptKey).update(JSON.stringify(payload)).digest('hex');
+    try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 3000);
+        const r = await fetch(agent.webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Aegis-Signature': signature, 'User-Agent': 'Aegis-Policy-Gateway/2.5' },
+            body: JSON.stringify(event),
+            signal: ctrl.signal,
+        });
+        clearTimeout(t);
+        console.log(`🪝 [WEBHOOK] Delivered verdict ${payload.auditId} -> ${agent.webhookUrl} (${r.status})`);
+    } catch (e) {
+        console.log(`🪝 [WEBHOOK] Delivery failed for ${agent.webhookUrl}: ${e.message}`);
+    }
+}
+
 function requireAdmin(req, res, next) {
     const adminKey = process.env.ADMIN_API_KEY;
     if (!adminKey) {
@@ -541,6 +571,10 @@ app.post('/api/agents/register', async (req, res) => {
         if (name.length < 3) {
             return res.status(400).json({ error: 'Invalid payload: name must be 3-40 characters (letters, digits, space, _ or -)' });
         }
+        const rawWebhook = (req.body && req.body.webhookUrl ? String(req.body.webhookUrl) : '').trim().slice(0, 300);
+        if (rawWebhook && !/^https:\/\//.test(rawWebhook)) {
+            return res.status(400).json({ error: 'Invalid payload: webhookUrl must be an https:// URL' });
+        }
         const apiKey = 'agk_' + crypto.randomBytes(24).toString('hex');
         const agentId = 'aegis_ag_' + crypto.randomBytes(5).toString('hex');
         const agent = await withTimeout(Agent.create({
@@ -548,6 +582,7 @@ app.post('/api/agents/register', async (req, res) => {
             name,
             keyHash: sha256(apiKey),
             keyPrefix: apiKey.slice(0, 12),
+            webhookUrl: rawWebhook || '',
         }), 3000);
         res.status(201).json({
             status: 'REGISTERED',
@@ -693,6 +728,8 @@ async function auditTransactionHandler(req, res) {
             agentId: normalizedAgent, amount: numericAmount, currency: normalizedCurrency,
             decision: 'APPROVED', reason: 'Within sovereign policy limits', tollKES: toll,
         });
+        audit.receiptHash = receiptHashFor(audit);
+        audit.save().catch(() => {});
         await Metric.findOneAndUpdate(
             { id: 'global_metrics' },
             { $inc: { totalTasksAudited: 1, totalRevenueKSH: toll, sovereignYieldUSD: yieldUSD } },
@@ -722,6 +759,12 @@ async function auditTransactionHandler(req, res) {
             }
         }
 
+        if (mode === 'live' && agentRecord) {
+            deliverVerdictWebhook(agentRecord, {
+                auditId: audit.id, decision: 'APPROVED', reason: 'Within sovereign policy limits',
+                agentId: agentRecord.agentId, amount: numericAmount, currency: normalizedCurrency, tollKES: toll,
+            });
+        }
         res.status(200).json({
             status: 'APPROVED',
             reason: 'Transaction within sovereign policy limits',
@@ -732,6 +775,7 @@ async function auditTransactionHandler(req, res) {
             currency: normalizedCurrency,
             tollKES: toll,
             auditId: audit.id,
+            receiptUrl: `/verify/${audit.id}`,
             settled: false, // Metered toll accounting; live payment-rail settlement available on request.
             warrant, // present only for authenticated live approvals — the ONLY key the settlement executor accepts
         });
@@ -1325,6 +1369,64 @@ app.get('/api/warrants/recent', async (req, res) => {
     } catch (err) {
         res.status(503).json({ error: 'Warrant ledger unreachable', requestId: req.id });
     }
+});
+
+// 4g. PUBLIC RECEIPTS — every decision is a shareable, tamper-evident proof page.
+const findAuditById = (id) => withTimeout(Audit.findOne({ _id: String(id).slice(0, 64) }).lean(), 3000);
+
+app.get('/api/verify/:auditId', async (req, res) => {
+    try {
+        const rec = await findAuditById(req.params.auditId);
+        if (!rec) return res.status(404).json({ error: 'Receipt not found', requestId: req.id });
+        const verified = !!receiptVerify(rec);
+        res.json({
+            auditId: rec._id, agentId: rec.agentId, decision: rec.decision, reason: rec.reason,
+            amount: rec.amount, currency: rec.currency, tollKES: rec.tollKES, timestamp: rec.timestamp,
+            receiptHash: rec.receiptHash ? rec.receiptHash.slice(0, 16) + '…' : null,
+            integrity: verified ? 'VERIFIED' : (rec.receiptHash ? 'TAMPERED' : 'UNSIGNED (predates signed receipts)'),
+        });
+    } catch {
+        res.status(503).json({ error: 'Receipt verification unavailable — try again shortly', requestId: req.id });
+    }
+});
+
+app.get('/verify/:auditId', async (req, res) => {
+    let rec = null;
+    try { rec = await findAuditById(req.params.auditId); } catch {}
+    const verdict = rec
+        ? { ...rec, integrity: receiptVerify(rec) ? 'VERIFIED' : (rec.receiptHash ? 'TAMPERED' : 'UNSIGNED') }
+        : null;
+    const badge = verdict ? (verdict.decision === 'APPROVED' ? '#22c55e' : '#ef4444') : '#64748b';
+    res.send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aegis Receipt ${verdict ? '· ' + verdict.decision : 'Not Found'}</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🛡️%3C/text%3E%3C/svg%3E">
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#070a14;color:#e2e8f0;font-family:ui-monospace,'JetBrains Mono',monospace}
+.card{max-width:560px;width:100%;margin:24px;padding:32px;border-radius:16px;border:1px solid #1c2947;background:#0b101f;box-shadow:0 0 60px rgba(56,132,255,.08)}
+h1{font-size:15px;letter-spacing:.2em;margin:0 0 4px;color:#7dd3fc;text-transform:uppercase}
+.verdict{font-size:30px;font-weight:700;margin:12px 0;color:${badge}}
+.row{display:flex;justify-content:space-between;gap:16px;padding:7px 0;border-top:1px solid #141d35;font-size:13px}
+.row span:first-child{color:#64748b}.row span:last-child{text-align:right;word-break:break-all}
+.integrity{margin-top:16px;padding:10px 14px;border-radius:8px;font-size:12px;background:#0f172a;border:1px solid #1c2947}
+.ok{color:#22c55e}.bad{color:#ef4444}.dim{color:#94a3b8}
+a{color:#38bdf8;text-decoration:none}
+</style></head><body><div class="card">
+<h1>🛡️ Aegis Policy Receipt</h1>
+${verdict ? `
+<div class="verdict">${verdict.decision}</div>
+<div class="row"><span>Reason</span><span>${String(verdict.reason).slice(0, 200)}</span></div>
+<div class="row"><span>Agent</span><span>${verdict.agentId}</span></div>
+<div class="row"><span>Amount</span><span>${verdict.amount} ${verdict.currency}</span></div>
+<div class="row"><span>Decision time</span><span>${new Date(verdict.timestamp).toISOString().replace('T',' ').slice(0,19)} UTC</span></div>
+<div class="row"><span>Receipt ID</span><span>${verdict._id}</span></div>
+<div class="row"><span>Record hash</span><span class="dim">${verdict.receiptHash ? verdict.receiptHash.slice(0, 24) + '…' : '—'}</span></div>
+<div class="integrity ${verdict.integrity === 'VERIFIED' ? 'ok' : verdict.integrity === 'TAMPERED' ? 'bad' : 'dim'}">
+${verdict.integrity === 'VERIFIED' ? '✓ Record integrity cryptographically verified — this decision is exactly as the gate issued it.' : verdict.integrity === 'TAMPERED' ? '✗ HASH MISMATCH — this record has been altered.' : '◦ Unsigned record (predates signed receipts).'}
+</div>
+<p style="font-size:12px;color:#64748b;margin-top:18px">Verify programmatically: <a href="/api/verify/${verdict._id}">/api/verify/${verdict._id}</a></p>`
+: `<div class="verdict">NOT FOUND</div><p class="dim">No decision matches this receipt ID. It may have been mistyped.</p>`}
+<p style="font-size:12px;color:#64748b"><a href="/">🛡️ aegis-agent-4u79.onrender.com</a> — the policy gate for autonomous agents</p>
+</div></body></html>`);
 });
 
 // 5. OPERATIONS LAYER — health, version, JSON errors, graceful shutdown.
