@@ -27,10 +27,7 @@
       $('statusText').textContent = live ? 'GATE LIVE' : 'GATE DOWN';
 
       if (stats) {
-        pop($('statVerdicts'), fmtNum(stats.totalVerdicts));
-        pop($('statAgents'), fmtNum(stats.agentsRegistered));
-        pop($('statTolls'), fmtNum(stats.totalTollKES));
-        pop($('statCeiling'), fmtNum(config && config.policy ? config.policy.maxAmountLimitKES : 0));
+        // tiles stay clean and empty by design — no counters on the landing page
       }
 
       var list = $('trailList');
