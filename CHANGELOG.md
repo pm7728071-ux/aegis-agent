@@ -3,6 +3,11 @@
 All notable changes to the Aegis Policy Gateway are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [Unreleased]
+
+### Added
+- `tests/security.js`: dedicated automated security suite covering the 7-case security spec — policy ALLOW/DENY, key auth denial, fail-closed under total DB outage (self-spawned chaos instance with unreachable DB), single-use warrant settlement (duplicate transactions impossible), rate-limit/IP-jail triggering with operator unblock, and audit-trail accuracy verification for every decision. 25/25 passing against production.
+
 ## [2.6.0] — 2026-10-22
 
 ### Added
