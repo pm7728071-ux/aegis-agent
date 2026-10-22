@@ -184,10 +184,10 @@ app.get('/health', (req, res) => {
 
 // Fallback to serve the landing page for all non-API routes
 app.get('*', (req, res, next) => {
-    if (!req.url.startsWith('/api')) {
+    if (!req.url.startsWith('/api') && !req.url.startsWith('/verify')) {
         res.sendFile(path.join(publicPath, 'index.html'));
     } else {
-        next();
+        next(); // API routes — and public receipt pages registered further below
     }
 });
 
