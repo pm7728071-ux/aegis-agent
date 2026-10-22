@@ -3,6 +3,15 @@
 All notable changes to the Aegis Policy Gateway are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.6.0] — 2026-10-22
+
+### Added
+- Multi-page site: /docs (how it works + full API reference moved off the home page), /help, /feedback, plus nav across all pages
+- Help line: developers report issues/crashes at /help — every report lands in the operator console inbox with optional reply-to contact; 48-hour response SLA
+- Feature board: developers propose features at /feedback; latest requests shown publicly (messages only, contact info never exposed)
+- Operator console: help-line inbox with status workflow (new → reviewed → done)
+- Feedback API: POST /api/feedback, GET /api/feedback/recent (public, feature-only), GET /api/admin/feedback + PATCH /api/admin/feedback/:id (operator)
+
 ## [2.5.0] — 2026-10-22
 
 ### Added
