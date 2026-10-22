@@ -160,6 +160,9 @@ function recordAuthFailure(ip) {
 }
 
 // Operator console lives at /console; landing page at /
+app.get('/docs', (req, res) => res.sendFile(path.join(publicPath, 'docs.html')));
+app.get('/help', (req, res) => res.sendFile(path.join(publicPath, 'help.html')));
+app.get('/feedback', (req, res) => res.sendFile(path.join(publicPath, 'feedback.html')));
 app.get('/console', (req, res) => {
     res.sendFile(path.join(publicPath, 'console.html'));
 });
@@ -257,6 +260,16 @@ const AgentSchema = new mongoose.Schema({
 });
 
 const Agent = mongoose.model('Agent', AgentSchema);
+
+// 3d. COMMUNITY FEEDBACK — the help line: issues and feature requests from developers.
+const FeedbackSchema = new mongoose.Schema({
+    type: { type: String, enum: ['issue', 'feature'], required: true },
+    message: { type: String, required: true },
+    contact: { type: String, default: '' }, // optional reply-to (email, handle, URL)
+    status: { type: String, enum: ['new', 'reviewed', 'done'], default: 'new' },
+    createdAt: { type: Date, default: Date.now },
+});
+const Feedback = mongoose.model('Feedback', FeedbackSchema);
 
 // 3c-2. M-PESA PAYMENTS — live Daraja STK-push settlement records.
 const PaymentSchema = new mongoose.Schema({
@@ -1430,6 +1443,58 @@ ${verdict.integrity === 'VERIFIED' ? '✓ Record integrity cryptographically ver
 : `<div class="verdict">NOT FOUND</div><p class="dim">No decision matches this receipt ID. It may have been mistyped.</p>`}
 <p style="font-size:12px;color:#64748b"><a href="/">🛡️ aegis-agent-4u79.onrender.com</a> — the policy gate for autonomous agents</p>
 </div></body></html>`);
+});
+
+// 4h. HELP LINE — developers report issues and propose features; the team reads them in the console.
+app.post('/api/feedback', async (req, res) => {
+    if (!rateLimit('feedback:' + clientIp(req), 5, 60 * 60 * 1000)) {
+        return res.status(429).json({ error: 'Too many reports from this address. Try again later.', requestId: req.id });
+    }
+    try {
+        const b = req.body || {};
+        const type = String(b.type || '').trim();
+        const message = String(b.message || '').trim();
+        const contact = String(b.contact || '').trim().slice(0, 120);
+        if (type !== 'issue' && type !== 'feature') return res.status(400).json({ error: 'Invalid payload: type must be "issue" or "feature"', requestId: req.id });
+        if (message.length < 10 || message.length > 2000) return res.status(400).json({ error: 'Invalid payload: message must be 10-2000 characters', requestId: req.id });
+        const fb = await withTimeout(Feedback.create({ type, message: message.slice(0, 2000), contact }), 3000);
+        console.log(`🆘 [FEEDBACK] ${type} received (${fb.id.slice(-6)})${contact ? ' with reply-to' : ''}`);
+        res.status(201).json({ status: 'RECEIVED', ticketId: fb.id, note: type === 'issue' ? 'The Aegis team reviews every issue — expect a response within 48 hours.' : 'Feature requests are reviewed weekly and the top ones ship first.' });
+    } catch (error) {
+        res.status(503).json({ error: 'Feedback service unavailable — try again shortly', requestId: req.id });
+    }
+});
+
+// Public board: latest feature requests (messages only — no contact info is ever exposed).
+app.get('/api/feedback/recent', async (req, res) => {
+    try {
+        const list = await withTimeout(Feedback.find({ type: 'feature' }).sort({ createdAt: -1 }).limit(20).select('message createdAt'), 3000);
+        res.json(list);
+    } catch {
+        res.json([]);
+    }
+});
+
+// Operator inbox: everything, including contact info, for the team.
+app.get('/api/admin/feedback', requireAdmin, async (req, res) => {
+    try {
+        const list = await withTimeout(Feedback.find().sort({ createdAt: -1 }).limit(100), 3000);
+        res.json(list.map(f => ({ id: f.id, type: f.type, message: f.message, contact: f.contact, status: f.status, createdAt: f.createdAt })));
+    } catch {
+        res.status(503).json({ error: 'Feedback inbox unavailable', requestId: req.id });
+    }
+});
+
+app.patch('/api/admin/feedback/:id', requireAdmin, async (req, res) => {
+    const status = String((req.body || {}).status || '').trim();
+    if (!['new', 'reviewed', 'done'].includes(status)) return res.status(400).json({ error: 'Invalid payload: status must be new|reviewed|done', requestId: req.id });
+    try {
+        const fb = await withTimeout(Feedback.findByIdAndUpdate(req.params.id, { status }, { new: true }), 3000);
+        if (!fb) return res.status(404).json({ error: 'Feedback not found', requestId: req.id });
+        res.json({ success: true, status: fb.status });
+    } catch {
+        res.status(503).json({ error: 'Feedback update unavailable', requestId: req.id });
+    }
 });
 
 // 5. OPERATIONS LAYER — health, version, JSON errors, graceful shutdown.

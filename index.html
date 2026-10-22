@@ -71,11 +71,12 @@
             <p class="text-[10px] uppercase tracking-[0.22em] text-slate-500 font-mono">Policy Gateway</p>
           </div>
         </div>
-        <nav class="hidden items-center gap-6 font-mono text-xs text-slate-400 sm:flex">
-          <a href="#how" class="transition hover:text-primary-300">How it works</a>
+        <nav class="hidden items-center gap-5 font-mono text-xs text-slate-400 sm:flex">
+          <a href="/docs" class="transition hover:text-primary-300">Docs</a>
           <a href="#playground" class="transition hover:text-primary-300">Playground</a>
-          <a href="#register" class="transition hover:text-primary-300">Get an API key</a>
-          <a href="#api" class="transition hover:text-primary-300">API</a>
+          <a href="/help" class="transition hover:text-primary-300">Help</a>
+          <a href="/feedback" class="transition hover:text-primary-300">Feedback</a>
+          <a href="/console" class="transition hover:text-primary-300">Console</a>
         </nav>
         <div class="flex items-center gap-2 rounded-full border border-ink-600 bg-ink-850 px-4 py-1.5">
           <span id="statusDot" class="h-2 w-2 rounded-full bg-danger-400"></span>
@@ -124,38 +125,7 @@
       </section>
 
       <!-- How it works -->
-      <section id="how" class="space-y-8">
-        <h3 class="text-center font-mono text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">How it works</h3>
-        <div class="grid gap-6 lg:grid-cols-3">
-          <div class="space-y-3 rounded-xl border border-ink-700 bg-ink-900/80 p-6">
-            <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-primary-300">Step 1</p>
-            <h4 class="text-lg font-semibold text-slate-100">Register your agent</h4>
-            <p class="text-sm leading-relaxed text-slate-400">Give your agent a name and receive an API key instantly. No email, no setup call — the key is generated in your browser session and shown exactly once.</p>
-          </div>
-          <div class="space-y-3 rounded-xl border border-ink-700 bg-ink-900/80 p-6">
-            <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-primary-300">Step 2</p>
-            <h4 class="text-lg font-semibold text-slate-100">Call the gate before every transaction</h4>
-            <p class="text-sm leading-relaxed text-slate-400">One POST request, authenticated with your key. Aegis compares the amount against the live policy limit.</p>
-            <pre class="overflow-x-auto rounded-lg border border-ink-700 bg-ink-950 p-3 font-mono text-[11px] leading-relaxed text-slate-300">curl -X POST https://aegis-agent-4u79.onrender.com/api/audit \
-  -H "Authorization: Bearer agk_YOUR_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"amount": 4500, "currency": "KES"}'</pre>
-          </div>
-          <div class="space-y-3 rounded-xl border border-ink-700 bg-ink-900/80 p-6">
-            <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-primary-300">Step 3</p>
-            <h4 class="text-lg font-semibold text-slate-100">Act only on APPROVED</h4>
-            <p class="text-sm leading-relaxed text-slate-400">The verdict, reason and toll come back in milliseconds, and the decision is written to the immutable audit trail. Anything else — block by default.</p>
-            <pre class="overflow-x-auto rounded-lg border border-ink-700 bg-ink-950 p-3 font-mono text-[11px] leading-relaxed text-slate-300">{
-  "status": "APPROVED",
-  "tollKES": 0.5,
-  "auditId": "6ad9…",
-  "mode": "live"
-}</pre>
-          </div>
-        </div>
-      </section>
-
-      <!-- Playground -->
+      
       <section id="playground" class="grid gap-6 lg:grid-cols-2">
         <div class="space-y-3 rounded-xl border border-primary-500/30 bg-ink-900/80 p-6 shadow-glow">
           <h3 class="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">Live Playground — sandbox mode</h3>
@@ -210,63 +180,6 @@
       </section>
 
       <!-- API reference -->
-      <section id="api" class="space-y-6">
-        <h3 class="text-center font-mono text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">API Reference</h3>
-        <div class="overflow-hidden rounded-xl border border-ink-700 bg-ink-900/80">
-          <table class="w-full text-left text-sm">
-            <thead class="border-b border-ink-700 font-mono text-[11px] uppercase tracking-[0.14em] text-slate-500">
-              <tr><th class="px-5 py-3">Endpoint</th><th class="px-5 py-3">Auth</th><th class="px-5 py-3">What it does</th></tr>
-            </thead>
-            <tbody class="divide-y divide-ink-700/60">
-              <tr class="hover:bg-ink-850/50"><td class="px-5 py-3 font-mono text-primary-300">POST /api/agents/register</td><td class="px-5 py-3 font-mono text-slate-400">none</td><td class="px-5 py-3 text-slate-300">Issue an agent ID + API key (shown once)</td></tr>
-              <tr class="hover:bg-ink-850/50"><td class="px-5 py-3 font-mono text-primary-300">POST /api/audit</td><td class="px-5 py-3 font-mono text-slate-400">bearer (optional)</td><td class="px-5 py-3 text-slate-300">The audit gate — APPROVED / BLOCKED verdict</td></tr>
-              <tr class="hover:bg-ink-850/50"><td class="px-5 py-3 font-mono text-primary-300">GET /api/agents/me</td><td class="px-5 py-3 font-mono text-slate-400">bearer</td><td class="px-5 py-3 text-slate-300">Your agent's usage counters</td></tr>
-              <tr class="hover:bg-ink-850/50"><td class="px-5 py-3 font-mono text-primary-300">GET /api/audit/recent</td><td class="px-5 py-3 font-mono text-slate-400">none</td><td class="px-5 py-3 text-slate-300">Last 15 verdicts from the immutable trail</td></tr>
-              <tr class="hover:bg-ink-850/50"><td class="px-5 py-3 font-mono text-primary-300">GET /api/network/stats</td><td class="px-5 py-3 font-mono text-slate-400">none</td><td class="px-5 py-3 text-slate-300">Live public network telemetry</td></tr>
-              <tr class="hover:bg-ink-850/50"><td class="px-5 py-3 font-mono text-primary-300">GET /api/config</td><td class="px-5 py-3 font-mono text-slate-400">none</td><td class="px-5 py-3 text-slate-300">Current policy limits (KES ceiling, toll, FX)</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <div class="grid gap-4 lg:grid-cols-3">
-          <div class="space-y-2">
-            <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">cURL</p>
-            <pre class="overflow-x-auto rounded-lg border border-ink-700 bg-ink-950 p-4 font-mono text-[11px] leading-relaxed text-slate-300">curl -X POST https://aegis-agent-4u79.onrender.com/api/audit \
-  -H "Authorization: Bearer agk_YOUR_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"amount": 4500, "currency": "KES"}'</pre>
-          </div>
-          <div class="space-y-2">
-            <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">Node.js</p>
-            <pre class="overflow-x-auto rounded-lg border border-ink-700 bg-ink-950 p-4 font-mono text-[11px] leading-relaxed text-slate-300">const res = await fetch(
-  "https://aegis-agent-4u79.onrender.com/api/audit",
-  { method: "POST",
-    headers: {
-      Authorization: "Bearer " + process.env.AEGIS_KEY,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      amount: 4500, currency: "KES",
-    }),
-  });
-const verdict = await res.json();
-if (verdict.status !== "APPROVED") throw new Error(verdict.reason);</pre>
-          </div>
-          <div class="space-y-2">
-            <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">Python</p>
-            <pre class="overflow-x-auto rounded-lg border border-ink-700 bg-ink-950 p-4 font-mono text-[11px] leading-relaxed text-slate-300">import os, requests
-
-verdict = requests.post(
-  "https://aegis-agent-4u79.onrender.com/api/audit",
-  headers={"Authorization": f"Bearer {os.environ['AEGIS_KEY']}"},
-  json={"amount": 4500, "currency": "KES"},
-).json()
-
-if verdict["status"] != "APPROVED":
-    raise RuntimeError(verdict["reason"])</pre>
-          </div>
-        </div>
-      </section>
-
       <!-- Live verdicts -->
       <section class="rounded-xl border border-ink-700 bg-ink-900/80">
         <div class="flex items-center justify-between border-b border-ink-700 px-5 py-4">
@@ -277,7 +190,7 @@ if verdict["status"] != "APPROVED":
       </section>
 
       <footer id="footer" class="border-t border-ink-700 pt-6 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-slate-600">
-        AEGIS policy gateway · fail-closed by design · <a href="/security" class="underline decoration-dotted hover:text-primary-300">security &amp; transparency</a> · <a href="/console" class="underline decoration-dotted hover:text-primary-300">operator console</a>
+        AEGIS policy gateway · fail-closed by design · <a href="/docs" class="underline decoration-dotted hover:text-primary-300">docs</a> · <a href="/help" class="underline decoration-dotted hover:text-primary-300">help</a> · <a href="/feedback" class="underline decoration-dotted hover:text-primary-300">feedback</a> · <a href="/security" class="underline decoration-dotted hover:text-primary-300">security</a> · <a href="/console" class="underline decoration-dotted hover:text-primary-300">operator console</a>
       </footer>
     </main>
 

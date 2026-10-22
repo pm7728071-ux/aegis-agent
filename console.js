@@ -282,6 +282,44 @@
 
   refreshMpesa();
   setInterval(refreshMpesa, 10000);
-    refresh();
+    function esc(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+  function fbStatusTone(s) { return s === 'done' ? 'text-accent-400 border-accent-500/40 bg-accent-500/10' : s === 'reviewed' ? 'text-warn-400 border-warn-400/40 bg-warn-400/10' : 'text-danger-400 border-danger-500/40 bg-danger-500/10'; }
+  function renderFeedback(list) {
+    var ul = $('feedbackList');
+    if (!list || !list.length) { ul.innerHTML = '<li class="px-5 py-4 font-mono text-xs text-slate-500">no reports yet — the help line is quiet</li>'; return; }
+    ul.innerHTML = list.map(function (f) {
+      var next = f.status === 'new' ? 'reviewed' : 'done';
+      return '<li class="px-5 py-4">'
+        + '<div class="flex flex-wrap items-center gap-2">'
+        + '<span class="font-mono text-[10px] uppercase tracking-[0.18em] ' + (f.type === 'issue' ? 'text-danger-400' : 'text-primary-300') + '">' + f.type + '</span>'
+        + '<span class="rounded border px-2 py-0.5 font-mono text-[10px] uppercase ' + fbStatusTone(f.status) + '">' + f.status + '</span>'
+        + (f.contact ? '<span class="font-mono text-[10px] text-slate-500">↩ ' + esc(f.contact) + '</span>' : '')
+        + '<span class="ml-auto font-mono text-[10px] text-slate-600">' + new Date(f.createdAt).toISOString().replace('T', ' ').slice(0, 16) + '</span>'
+        + '</div>'
+        + '<p class="mt-2 whitespace-pre-wrap text-sm text-slate-300">' + esc(f.message) + '</p>'
+        + '<button data-fbid="' + f.id + '" data-fbnext="' + next + '" class="mt-2 rounded border border-ink-600 bg-ink-850 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.15em] text-slate-300 transition hover:border-primary-400 hover:text-primary-300">mark ' + next + '</button>'
+        + '</li>';
+    }).join('');
+  }
+  function loadFeedback() {
+    if (!adminKey) return;
+    fetch('/api/admin/feedback', { headers: { 'Authorization': 'Bearer ' + adminKey } })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
+      .then(renderFeedback)
+      .catch(function () { $('feedbackList').innerHTML = '<li class="px-5 py-4 font-mono text-xs text-danger-400">inbox unavailable — check admin key</li>'; });
+  }
+  $('feedbackList').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-fbid]');
+    if (!b || !adminKey) return;
+    fetch('/api/admin/feedback/' + b.getAttribute('data-fbid'), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + adminKey },
+      body: JSON.stringify({ status: b.getAttribute('data-fbnext') })
+    }).then(function (r) { if (r.ok) loadFeedback(); });
+  });
+  loadFeedback();
+  setInterval(loadFeedback, 30000);
+
+  refresh();
   setInterval(refresh, 5000);
 })();
