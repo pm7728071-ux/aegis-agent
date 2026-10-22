@@ -3,6 +3,14 @@
 All notable changes to the Aegis Policy Gateway are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.5.0] — 2026-10-22
+
+### Added
+- Signed receipts: every verdict is hashed (HMAC-SHA256) at decision time
+- Shareable proof pages: `/verify/:auditId` renders a tamper-evident receipt for any decision; `/api/verify/:auditId` verifies programmatically
+- Every APPROVED response now carries `receiptUrl`
+- Agent webhooks: register a `webhookUrl` and every verdict fires a signed `verdict.created` event (`X-Aegis-Signature`) to it
+
 ## [2.4.0] — 2026-10-22
 
 ### Added

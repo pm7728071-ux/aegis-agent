@@ -90,7 +90,7 @@ async function liveSuite() {
   console.log(`\n=== LIVE PRODUCTION SUITE — ${BASE} ===`);
 
   // ---- 5a. Register a dedicated test agent (key issuance + format)
-  const reg = await post('/api/agents/register', { name: 'ReadinessProbe' });
+  const reg = await post('/api/agents/register', { name: 'ReadinessProbe', webhookUrl: 'https://example.com/aegis-hook' });
   check('5. keys', 'registration issues an agent id + key', reg.ok && !!reg.data.agentId && !!reg.data.apiKey,
     `agentId=${reg.data.agentId || 'none'}`);
   const KEY = reg.data.apiKey || '';
@@ -167,6 +167,14 @@ async function liveSuite() {
   // ---- 6. Payment warrants: settlement trusts ONLY signed single-use warrants
   const wAudit = await post('/api/audit', { agentId: AGENT, amount: 1, currency: 'KES' }, { key: KEY });
   const warrant = (wAudit.data || {}).warrant;
+  check('6. receipts', 'live approval carries a shareable receipt URL', !!wAudit.data.receiptUrl,
+    `receiptUrl=${wAudit.data.receiptUrl}`);
+  const receipt = await get(`/api/verify/${wAudit.data.auditId}`);
+  check('6. receipts', 'receipt verifies cryptographically online', receipt.ok && receipt.data.integrity === 'VERIFIED',
+    `integrity=${receipt.data && receipt.data.integrity}`);
+  check('6. webhooks', 'agent webhook registered and visible', me1.data.webhookUrl === 'https://example.com/aegis-hook',
+    `webhookUrl=${me1.data.webhookUrl}`);
+
   check('6. warrants', 'live approval issues a signed warrant', !!warrant && !!warrant.warrantId && !!warrant.signature,
     warrant ? `warrantId=${warrant.warrantId.slice(0, 16)}…` : 'no warrant in response');
 
