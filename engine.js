@@ -1188,9 +1188,13 @@ app.post('/api/payments/settle', async (req, res) => {
 
         let agentRecord = null;
         if (token !== process.env.ADMIN_API_KEY) {
-            agentRecord = await withTimeout(resolveAgent(token), 3000);
-            if (!agentRecord) return res.status(401).json({ status: 'BLOCKED', error: 'Unauthorized: invalid or inactive agent key', requestId: req.id });
-            if (agentRecord.status === 'quarantined') return res.status(403).json({ status: 'BLOCKED', reason: 'Agent is quarantined by operator order and may not transact', requestId: req.id });
+            const identity = await withTimeout(resolveAgent(req), 3000);
+            if (!identity || identity.mode !== 'live' || !identity.agent) {
+                recordAuthFailure(clientIp(req));
+                return res.status(401).json({ status: 'BLOCKED', error: 'Unauthorized: invalid or inactive agent key', requestId: req.id });
+            }
+            if (identity.agent.status === 'quarantined') return res.status(403).json({ status: 'BLOCKED', reason: 'Agent is quarantined by operator order and may not transact', requestId: req.id });
+            agentRecord = identity.agent;
         }
 
         const warrant = (req.body || {}).warrant;
@@ -1311,9 +1315,9 @@ app.get('/api/warrants/recent', async (req, res) => {
             const warrants = await withTimeout(Warrant.find({}).sort({ issuedAt: -1 }).limit(15), 3000);
             return res.json({ warrants });
         }
-        const agentRecord = await withTimeout(resolveAgent(token), 3000);
-        if (token && agentRecord) {
-            const warrants = await withTimeout(Warrant.find({ agentId: agentRecord.agentId }).sort({ issuedAt: -1 }).limit(15), 3000);
+        const identity = await withTimeout(resolveAgent(req), 3000);
+        if (token && identity && identity.mode === 'live' && identity.agent) {
+            const warrants = await withTimeout(Warrant.find({ agentId: identity.agent.agentId }).sort({ issuedAt: -1 }).limit(15), 3000);
             return res.json({ warrants });
         }
         res.status(401).json({ error: 'Unauthorized', requestId: req.id });
