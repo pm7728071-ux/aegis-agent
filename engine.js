@@ -1074,6 +1074,18 @@ app.post('/api/intasend/webhook', express.raw({ type: '*/*' }), async (req, res)
     res.json({ received: true });
 });
 
+// Operator-only: free a jailed IP (shared NAT, false positive) without waiting out the timer.
+app.post('/api/admin/unblock', requireAdmin, (req, res) => {
+    const ip = String((req.body || {}).ip || '').trim();
+    if (!/^[0-9a-fA-F.:]{3,45}$/.test(ip)) {
+        return res.status(400).json({ error: 'Invalid payload: ip must be an IPv4/IPv6 address', requestId: req.id });
+    }
+    const wasJailed = ipBlocklist.delete(ip);
+    authFailures.delete(ip);
+    console.log(`🛡️ [AUTH GUARD] Operator unjailed ${ip}`);
+    res.json({ success: true, ip, wasJailed });
+});
+
 // 5. OPERATIONS LAYER — health, version, JSON errors, graceful shutdown.
 
 app.get('/api/version', (req, res) => {

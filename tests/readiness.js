@@ -128,7 +128,7 @@ async function liveSuite() {
 
   // ---- 4. Audit records accurately explain every decision
   const before = await get('/api/audit/recent');
-  const beforeIds = new Set((before.data || []).map(a => a._id));
+  const beforeIds = new Set((Array.isArray(before.data) ? before.data : []).map(a => a._id));
 
   const cases = [
     { body: { amount: 1, currency: 'KES' }, wantDecision: 'APPROVED', wantReason: 'within sovereign policy limits', wantStatus: 200 },
