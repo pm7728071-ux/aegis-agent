@@ -148,8 +148,9 @@ async function liveSuite() {
 
   // pull the trail and match each new record
   await wait(800);
-  const after = await get('/api/audit/recent');
-  for (const a of (after.data || [])) if (!beforeIds.has(a._id)) newEntries.push(a);
+  let after = await get('/api/audit/recent');
+  if (!Array.isArray(after.data)) { await wait(1500); after = await get('/api/audit/recent'); } // tolerate transient trail hiccups
+  for (const a of (Array.isArray(after.data) ? after.data : [])) if (!beforeIds.has(a._id)) newEntries.push(a);
   check('4. audit', 'one trail record written per decision', newEntries.length >= cases.length,
     `${newEntries.length} new records for ${cases.length} decisions`);
   const approved = newEntries.find(a => a.decision === 'APPROVED');
