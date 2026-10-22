@@ -3,6 +3,17 @@
 All notable changes to the Aegis Policy Gateway are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.4.0] — 2026-10-22
+
+### Added
+- Payment warrants: every APPROVED live verdict now carries a signed, single-use warrant (HMAC-SHA256, 10-minute TTL) binding the verdict to settlement
+- Settlement executor `POST /api/payments/settle` — the only door to money movement: no warrant, forged signature, tampered amount, replayed token, or expired warrant all refused
+- Atomic single-use claim prevents double-settlement races; every settlement records its authorizing warrant
+- `GET /api/warrants/recent` — warrant ledger (admin sees all, agents see their own)
+
+### Fixed
+- Graceful shutdown crashed on every deploy (mongoose 8 removed `close()` callbacks) — deploys now drain cleanly
+
 ## [2.3.0] — 2026-10-22
 
 ### Changed
