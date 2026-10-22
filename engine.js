@@ -252,9 +252,10 @@ const PaymentSchema = new mongoose.Schema({
     checkoutRequestId: { type: String, required: true, unique: true },
     merchantRequestId: { type: String },
     amount: { type: Number, required: true },
-    phone: { type: String, required: true },
+    phone: { type: String }, // optional: warranted settlements may authorize without a payer phone
     accountRef: { type: String, default: 'AEGIS' },
-    provider: { type: String, enum: ['daraja', 'intasend'], default: 'daraja' },
+    provider: { type: String, enum: ['daraja', 'intasend', 'warrant'], default: 'daraja' },
+    warrantId: { type: String, index: true },
     agentId: { type: String },
     status: { type: String, enum: ['PENDING', 'SUCCESS', 'FAILED'], default: 'PENDING' },
     resultDesc: { type: String, default: '' },
