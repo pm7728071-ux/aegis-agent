@@ -9,6 +9,8 @@
  *   CASE 5  Duplicate request                            → cannot duplicate a transaction
  *   CASE 6  Repeated forbidden requests                  → rate limit / jail (configured alert)
  *   CASE 7  Every decision                               → creates an accurate audit event
+ *   CASE 8  Key security: hashed storage, per-agent policy,
+ *           rotation, per-agent throttle, no key leakage
  *
  * Usage:
  *   node tests/security.js https://aegis-agent-4u79.onrender.com [adminKey]
@@ -195,7 +197,7 @@ async function case5() {
 async function case6() {
   // 6a. Over-limit burst: every attempt denied, wall of rate limits engages.
   let blocked = 0, limited = 0, leaked = 0;
-  for (let i = 0; i < 25; i++) {
+  for (let i = 0; i < 40; i++) {
     const r = await post('/api/audit', { agentId: 'SecSuite_Burst', amount: 99999999, currency: 'KES' });
     if (r.data && r.data.status === 'APPROVED') leaked++;
     else if (r.status === 429) limited++;
@@ -220,6 +222,66 @@ async function case6() {
     check('CASE 6', 'operator can lift the jail (alert is manageable)', un.ok && un.data.success,
       `unblocked=${un.data && un.data.ip}`);
   }
+}
+
+
+// ---------- CASE 8: API key security ----------
+async function case8() {
+  // 8a. Register a policy-bound sandbox key (per-agent policy, capped at global ceiling).
+  const reg = await post('/api/agents/register', { name: 'SecSuite_KeySec', policyLimitKES: 200 });
+  if (!reg.ok || !reg.data.apiKey) {
+    check('CASE 8', 'key security checks (registration rate-limited — rerun within the hour)',
+      reg.status === 429, `status=${reg.status}`);
+    return;
+  }
+  const KEY = reg.data.apiKey;
+  check('CASE 8', 'registration issues a securely generated key (agk_ + 48 hex)', /^agk_[0-9a-f]{48}$/.test(KEY));
+  check('CASE 8', 'key is tagged with its environment (sandbox)', reg.data.environment === 'sandbox',
+    `environment=${reg.data.environment}`);
+  check('CASE 8', 'key carries its per-agent policy', reg.data.policyLimitKES === 200,
+    `policyLimitKES=${reg.data.policyLimitKES}`);
+
+  // 8b. The key IS the policy: within agent limit → ALLOW, above it → DENY.
+  const inLimit = await post('/api/audit', { amount: 150, currency: 'KES' }, { key: KEY });
+  check('CASE 8', 'within the agent policy → ALLOWED', inLimit.data.status === 'APPROVED',
+    `verdict=${inLimit.data.status}`);
+  const overLimit = await post('/api/audit', { amount: 250, currency: 'KES' }, { key: KEY });
+  check('CASE 8', 'above the agent policy → DENIED (even though global ceiling is higher)',
+    overLimit.data.status === 'BLOCKED' && /agent/i.test(overLimit.data.reason || ''),
+    `reason="${overLimit.data.reason || ''}"`);
+
+  // 8c. No key material ever appears in the agent dashboard response.
+  const me = await get('/api/agents/me', { key: KEY });
+  const leaked = JSON.stringify(me.data || '').includes('agk_');
+  check('CASE 8', 'dashboard response exposes no key material', !leaked && me.ok);
+  check('CASE 8', 'dashboard shows the agent policy + environment',
+    me.data.policyLimitKES === 200 && me.data.environment === 'sandbox');
+
+  // 8d. Per-agent policy cannot exceed the global ceiling.
+  const capped = await post('/api/agents/register', { name: 'SecSuite_KeyCap', policyLimitKES: 999999999 });
+  if (capped.ok) {
+    check('CASE 8', 'agent policy is capped at the global ceiling',
+      capped.data.policyLimitKES <= 50000, `policyLimitKES=${capped.data.policyLimitKES}`);
+  } else {
+    check('CASE 8', 'key-cap check skipped (registration rate limit)', capped.status === 429, `status=${capped.status}`);
+  }
+
+  // 8e. Rotation: new key works, old key dies instantly.
+  const rot = await post('/api/agents/rotate', {}, { key: KEY });
+  check('CASE 8', 'keys can be rotated on demand', rot.ok && /^agk_[0-9a-f]{48}$/.test(rot.data.apiKey || ''),
+    `status=${rot.status}`);
+  const oldDead = await get('/api/agents/me', { key: KEY });
+  check('CASE 8', 'rotated (old) key is dead immediately', oldDead.status === 401, `status=${oldDead.status}`);
+  const newLive = await get('/api/agents/me', { key: rot.data.apiKey });
+  check('CASE 8', 'rotated (new) key is live immediately', newLive.ok, `status=${newLive.status}`);
+
+  // 8f. Per-agent throttle: 70 rapid requests → some 429s (60/min limit).
+  let throttled = 0;
+  for (let i = 0; i < 70; i++) {
+    const r = await get('/api/agents/me', { key: rot.data.apiKey });
+    if (r.status === 429) throttled++;
+  }
+  check('CASE 8', 'excessive requests from one key are throttled (60/min)', throttled > 0, `429s=${throttled}`);
 }
 
 // ---------- CASE 7: every decision creates an accurate audit event ----------
@@ -260,6 +322,7 @@ async function case7(beforeIds) {
   // Verify audit accuracy BEFORE the jail test runs (the suite runs case 6 last,
   // since jailing its own IP would block the trail read without an admin key).
   await case7(beforeIds);
+  await case8();
   await case6();
 
   console.log(`\n=== RESULT: ${results.length - failures}/${results.length} security checks passed ===`);

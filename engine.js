@@ -440,7 +440,8 @@ async function resolveAgent(req) {
     if (!token) return { mode: 'sandbox', agent: null };
     const agent = await withTimeout(Agent.findOne({ keyHash: sha256(token) }), 3000);
     // Per-agent throttle: 60 requests/min per key — a single agent cannot hog the gate.
-    if (agent && rateLimit('agent:' + agent.agentId, 60, 60000)) {
+    // (rateLimit returns true while WITHIN budget; throttled only when it says false.)
+    if (agent && !rateLimit('agent:' + agent.agentId, 60, 60000)) {
         return { mode: 'throttled', agent: null };
     }
     if (!agent) return { mode: 'invalid', agent: null };
