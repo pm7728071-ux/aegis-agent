@@ -110,6 +110,7 @@ const PaymentSchema = new mongoose.Schema({
     amount: { type: Number, required: true },
     phone: { type: String, required: true },
     accountRef: { type: String, default: 'AEGIS' },
+    provider: { type: String, enum: ['daraja', 'intasend'], default: 'daraja' },
     agentId: { type: String },
     status: { type: String, enum: ['PENDING', 'SUCCESS', 'FAILED'], default: 'PENDING' },
     resultDesc: { type: String, default: '' },
@@ -139,6 +140,23 @@ const MPESA = {
     },
     get configured() {
         return !!(this.consumerKey && this.consumerSecret && this.shortcode && this.passkey);
+    },
+};
+
+// ---------- IntaSend aggregator configuration (fail-closed until configured) ----------
+// Lets the gateway collect M-Pesa payments through IntaSend's license when
+// the operator has no own Daraja production (till/paybill) credentials.
+const INTASEND = {
+    environment: process.env.INTASEND_ENVIRONMENT || 'sandbox',
+    publicKey: process.env.INTASEND_PUBLIC_KEY || '',
+    secretKey: process.env.INTASEND_SECRET_KEY || '',
+    get baseUrl() {
+        return this.environment === 'live'
+            ? 'https://payment.intasend.com'
+            : 'https://sandbox.intasend.com';
+    },
+    get configured() {
+        return !!(this.publicKey && this.secretKey);
     },
 };
 
@@ -769,6 +787,7 @@ app.get('/api/mpesa/payments/recent', async (req, res) => {
     try {
         const payments = await withTimeout(Payment.find().sort({ createdAt: -1 }).limit(10), 3000);
         res.json(payments.map(p => ({
+            provider: p.provider || 'daraja',
             checkoutRequestId: p.checkoutRequestId,
             amount: p.amount,
             phone: p.phone,
@@ -780,6 +799,183 @@ app.get('/api/mpesa/payments/recent', async (req, res) => {
     } catch (error) {
         res.status(500).json({ error: 'Payments list unavailable' });
     }
+});
+
+// 4d. INTASEND AGGREGATOR RAIL — M-Pesa collections via IntaSend's license.
+// Same security posture as the Daraja rail: key-gated, rate-limited, fail-closed.
+
+app.get('/api/intasend/config', (req, res) => {
+    res.json({
+        enabled: INTASEND.configured,
+        environment: INTASEND.environment,
+    });
+});
+
+function requirePaymentInitiator(req, res, clientKey) {
+    // Shared gate: only active registered agents or the operator may fire payment prompts.
+    const token = bearerToken(req);
+    if (!token) {
+        res.status(401).json({ error: 'Unauthorized: an active agent key or the admin key is required to initiate payments' });
+        return null;
+    }
+    return token;
+}
+
+app.post('/api/intasend/stkpush', async (req, res) => {
+    if (!INTASEND.configured) {
+        return res.status(503).json({ error: 'IntaSend rail is not configured. Set INTASEND_PUBLIC_KEY and INTASEND_SECRET_KEY.' });
+    }
+    const token = requirePaymentInitiator(req, res, clientIp(req));
+    if (!token) return;
+
+    if (!rateLimit('intasend:' + clientIp(req), 5, 60 * 1000)) {
+        return res.status(429).json({ error: 'Too many payment requests. Slow down.' });
+    }
+
+    // Authenticate the initiator (admin key or active agent key)
+    let agentId = null;
+    if (token === process.env.ADMIN_API_KEY) {
+        agentId = 'operator';
+    } else {
+        const agent = await withTimeout(Agent.findOne({ keyHash: sha256(token) }), 3000).catch(() => null);
+        if (!agent || agent.status !== 'active') {
+            return res.status(401).json({ error: 'Unauthorized: an active agent key or the admin key is required to initiate payments' });
+        }
+        agentId = agent.agentId;
+    }
+
+    try {
+        const { amount, phoneNumber, accountRef } = req.body || {};
+        const numericAmount = Number(amount);
+        const phone = normalizeKenyanPhone(phoneNumber);
+        if (!Number.isFinite(numericAmount) || numericAmount < 1) {
+            return res.status(400).json({ error: 'Invalid amount: must be at least 1 KES' });
+        }
+        if (!phone) {
+            return res.status(400).json({ error: 'Invalid phone number: expected a Kenyan number like 07XXXXXXXX or 2547XXXXXXXX' });
+        }
+
+        const ref = String(accountRef || 'AEGIS').replace(/[^A-Za-z0-9 -]/g, '').slice(0, 50) + '-' + Date.now().toString(36);
+
+        const push = await fetch(`${INTASEND.baseUrl}/api/v1/payment/collection/`, {
+            method: 'POST',
+            headers: {
+                Authorization: 'Bearer ' + INTASEND.secretKey,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                public_key: INTASEND.publicKey,
+                method: 'STK-PUSH',
+                provider: 'M-PESA',
+                currency: 'KES',
+                amount: Math.round(numericAmount),
+                phone_number: phone,
+                api_ref: ref,
+            }),
+        });
+
+        const data = await push.json().catch(() => ({}));
+        const invoiceId = data && (data.id || (data.invoice && data.invoice.id));
+        if (!push.ok || !invoiceId) {
+            console.error('❌ IntaSend STK push rejected:', push.status, JSON.stringify(data));
+            return res.status(502).json({ error: 'IntaSend rejected the request', detail: data });
+        }
+
+        await withTimeout(Payment.create({
+            checkoutRequestId: String(invoiceId),
+            merchantRequestId: (data.invoice && data.invoice.invoice_id) || null,
+            amount: Math.round(numericAmount),
+            phone,
+            accountRef: ref,
+            agentId,
+            provider: 'intasend',
+            status: 'PENDING',
+        }), 3000).catch(() => {});
+
+        res.status(200).json({
+            status: 'PUSH_SENT',
+            message: 'Payment prompt sent via IntaSend. Check the phone for the M-Pesa request.',
+            checkoutRequestId: String(invoiceId),
+            phone,
+            amount: Math.round(numericAmount),
+            environment: INTASEND.environment,
+        });
+    } catch (error) {
+        console.error('❌ IntaSend fault:', error.message);
+        return res.status(503).json({ error: 'Payment rail fault: request not sent, nothing settled' });
+    }
+});
+
+// Poll IntaSend for a payment's state; updates our Payment record on terminal states.
+app.get('/api/intasend/status/:invoiceId', async (req, res) => {
+    if (!INTASEND.configured) {
+        return res.status(503).json({ error: 'IntaSend rail is not configured' });
+    }
+    try {
+        const status = await fetch(`${INTASEND.baseUrl}/api/v1/payment/status/`, {
+            method: 'POST',
+            headers: {
+                Authorization: 'Bearer ' + INTASEND.secretKey,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                public_key: INTASEND.publicKey,
+                id: req.params.invoiceId,
+            }),
+        });
+        const data = await status.json().catch(() => ({}));
+        const state = String(data.state || '').toUpperCase();
+        let ourStatus = 'PENDING';
+        let resultDesc = data.state || 'processing';
+        if (state === 'COMPLETE' || state === 'PAID') { ourStatus = 'SUCCESS'; resultDesc = 'Payment completed'; }
+        else if (state === 'FAILED' || state === 'CANCELLED' || state === 'TIMEOUT') { ourStatus = 'FAILED'; resultDesc = data.state || 'failed'; }
+
+        if (ourStatus !== 'PENDING') {
+            await withTimeout(Payment.findOneAndUpdate(
+                { checkoutRequestId: req.params.invoiceId },
+                { $set: { status: ourStatus, resultDesc, updatedAt: new Date() } },
+                { new: true }
+            ), 3000).catch(() => {});
+        }
+
+        const payment = await withTimeout(Payment.findOne({ checkoutRequestId: req.params.invoiceId }), 3000);
+        res.json({
+            intasendState: data.state || null,
+            status: payment ? payment.status : ourStatus,
+            resultDesc: payment ? payment.resultDesc : resultDesc,
+            receiptNumber: payment ? payment.receiptNumber : null,
+            amount: payment ? payment.amount : null,
+            phone: payment ? payment.phone : null,
+        });
+    } catch (error) {
+        res.status(503).json({ error: 'IntaSend status unavailable' });
+    }
+});
+
+// IntaSend webhook: echoes their verification challenge and records state changes.
+app.post('/api/intasend/webhook', express.raw({ type: '*/*' }), async (req, res) => {
+    let body = req.body;
+    try { if (Buffer.isBuffer(body)) body = JSON.parse(body.toString('utf8')); } catch {}
+    try {
+        if (body && body.challenge) {
+            return res.json({ challenge: body.challenge });
+        }
+        const invoiceId = body && (body.id || (body.invoice && body.invoice.id));
+        const state = String((body && (body.state || (body.invoice && body.invoice.state))) || '').toUpperCase();
+        if (invoiceId) {
+            const ourStatus = (state === 'COMPLETE' || state === 'PAID') ? 'SUCCESS'
+                : (state === 'FAILED' || state === 'CANCELLED') ? 'FAILED' : 'PENDING';
+            if (ourStatus !== 'PENDING') {
+                await withTimeout(Payment.findOneAndUpdate(
+                    { checkoutRequestId: String(invoiceId) },
+                    { $set: { status: ourStatus, resultDesc: String(state), rawCallback: body, updatedAt: new Date() } },
+                ), 3000).catch(() => {});
+            }
+        }
+    } catch (err) {
+        console.error('❌ IntaSend webhook fault:', err.message);
+    }
+    res.json({ received: true });
 });
 
 // 5. BOOT SERVER INSTANCE

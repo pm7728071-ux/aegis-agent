@@ -211,13 +211,22 @@
 
   // ----- M-Pesa rail -----
   function refreshMpesa() {
-    fetch('/api/mpesa/config').then(function (r) { return r.ok ? r.json() : Promise.reject(); }).catch(function () { return null; }).then(function (cfg) {
+    Promise.all([
+      fetch('/api/mpesa/config').then(function (r) { return r.ok ? r.json() : Promise.reject(); }).catch(function () { return null; }),
+      fetch('/api/intasend/config').then(function (r) { return r.ok ? r.json() : Promise.reject(); }).catch(function () { return null; }),
+    ]).then(function (rs) {
+      var d = rs[0], i = rs[1];
       var el = $('mpesaState');
-      if (!cfg) { el.textContent = 'rail state unknown'; return; }
-      el.textContent = cfg.enabled
-        ? '● LIVE — ' + cfg.environment + ' · paybill ' + cfg.shortcode
-        : '○ DISABLED — Daraja credentials not configured on the gateway';
-      el.className = 'font-mono text-[10px] ' + (cfg.enabled ? 'text-accent-400' : 'text-slate-500');
+      if (!el) return;
+      var dTxt = d && d.enabled ? 'Daraja: ' + d.environment : 'Daraja: off';
+      var iTxt = i && i.enabled ? 'IntaSend: ' + i.environment : 'IntaSend: off';
+      el.textContent = dTxt + ' · ' + iTxt;
+      el.className = 'self-center font-mono text-[10px] ' + ((d && d.enabled) || (i && i.enabled) ? 'text-accent-400' : 'text-slate-500');
+      var sel = $('mpesaProvider');
+      if (sel) {
+        var preferred = (i && i.enabled) ? 'intasend' : ((d && d.enabled) ? 'daraja' : null);
+        if (preferred && !sel.dataset.chosen) { sel.value = preferred; }
+      }
     });
     fetch('/api/mpesa/payments/recent').then(function (r) { return r.ok ? r.json() : Promise.reject(); }).catch(function () { return []; }).then(function (pays) {
       var list = $('mpesaRecent');
@@ -226,7 +235,7 @@
         var li = document.createElement('li');
         li.className = 'flex items-center justify-between gap-3 px-1 py-1.5 font-mono text-[10px] animate-slideIn';
         var left = document.createElement('span');
-        left.textContent = p.amount + ' KES · ' + p.phone;
+        left.textContent = (p.provider === 'intasend' ? 'IS' : 'DR') + ' · ' + p.amount + ' KES · ' + p.phone;
         var tone = p.status === 'SUCCESS' ? 'text-accent-400' : p.status === 'FAILED' ? 'text-danger-400' : 'text-warn-400';
         left.className = 'text-slate-400 truncate';
         var right = document.createElement('span');
@@ -248,7 +257,10 @@
       phoneNumber: $('mpesaPhone').value.trim(),
     };
     if ($('mpesaRef').value.trim()) body.accountRef = $('mpesaRef').value.trim();
-    fetch('/api/mpesa/stkpush', {
+    var provider = ($('mpesaProvider') && $('mpesaProvider').value) || 'daraja';
+    if ($('mpesaProvider')) { $('mpesaProvider').dataset.chosen = '1'; }
+    var endpoint = provider === 'intasend' ? '/api/intasend/stkpush' : '/api/mpesa/stkpush';
+    fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + adminKey },
       body: JSON.stringify(body),
