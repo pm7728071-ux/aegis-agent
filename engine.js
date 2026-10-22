@@ -74,7 +74,7 @@ app.get('/api/security/report', async (req, res) => {
             postureVersion: '2.2.0',
             posture: [
                 { name: 'Fail-closed core', description: 'Any fault — database, policy, identity — blocks the transaction. Nothing ever authorizes silently.' },
-                { name: 'Hashed API keys', description: 'Agent keys are stored only as SHA-256 hashes, shown once at registration, revocable by operator quarantine.' },
+                { name: 'Hardened API keys', description: 'Agent keys are stored only as SHA-256 hashes, shown once at registration, rotatable on demand, per-agent policy-bound, and rate-limited at 60 req/min.' },
                 { name: 'Honeypot perimeter', description: 'Scanner bait paths (/.env, /.git, /wp-admin and more) answer 403 and jail the probing IP for one hour.' },
                 { name: 'Brute-force jail', description: 'More than 10 failed key attempts from one IP within 10 minutes triggers a 30-minute block.' },
                 { name: 'Traffic ceiling', description: '240 requests/minute per source IP blunts scrapers and lightweight denial-of-service attempts.' },
@@ -641,6 +641,9 @@ app.post('/api/agents/register', async (req, res) => {
 app.get('/api/agents/me', async (req, res) => {
     try {
         const { mode, agent } = await resolveAgent(req);
+        if (mode === 'throttled') {
+            return res.status(429).json({ error: 'Agent rate limit exceeded (60 requests/min). Slow down and retry.' });
+        }
         if (mode !== 'live' || !agent) {
             recordAuthFailure(clientIp(req));
             return res.status(401).json({ error: 'Unauthorized: a valid registered API key is required' });
@@ -649,6 +652,8 @@ app.get('/api/agents/me', async (req, res) => {
             agentId: agent.agentId,
             name: agent.name,
             status: agent.status,
+            policyLimitKES: agent.policyLimitKES || 0,
+            environment: agent.environment || 'sandbox',
             requestCount: agent.requestCount,
             approvedCount: agent.approvedCount,
             webhookUrl: agent.webhookUrl || '',
@@ -669,6 +674,37 @@ app.get('/api/agents/me', async (req, res) => {
  * Verdicts persist to the immutable audit trail; approved audits meter the
  * 0.50 KES toll. Failures block by default.
  */
+// 4i. KEY ROTATION — a live key can be rotated at will; the old key dies instantly.
+app.post('/api/agents/rotate', async (req, res) => {
+    try {
+        const { mode, agent } = await resolveAgent(req);
+        if (mode === 'throttled') {
+            return res.status(429).json({ error: 'Agent rate limit exceeded (60 requests/min). Slow down and retry.' });
+        }
+        if (mode !== 'live' || !agent) {
+            recordAuthFailure(clientIp(req));
+            return res.status(401).json({ error: 'Unauthorized: a valid registered API key is required' });
+        }
+        if (!rateLimit('rotate:' + agent.agentId, 3, 60 * 60 * 1000)) {
+            return res.status(429).json({ error: 'Rotation limit reached (3 per hour). Try again later.' });
+        }
+        const newKey = 'agk_' + crypto.randomBytes(24).toString('hex');
+        await withTimeout(Agent.updateOne(
+            { _id: agent._id },
+            { $set: { keyHash: sha256(newKey), keyPrefix: newKey.slice(0, 12), rotatedAt: new Date() } }
+        ), 3000);
+        console.log(`🔁 [ROTATE] Key rotated for ${agent.agentId} (${agent.name})`);
+        res.status(200).json({
+            status: 'ROTATED',
+            message: 'Store this new API key now — it is shown only once. The previous key is dead.',
+            agentId: agent.agentId,
+            apiKey: newKey,
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Rotation service unavailable. Please retry.' });
+    }
+});
+
 async function auditTransactionHandler(req, res) {
     const { agentId, amount, currency, mpesaRecipient } = req.body || {};
     const normalizedCurrency = (currency || 'KES').toString().toUpperCase();
@@ -679,6 +715,9 @@ async function auditTransactionHandler(req, res) {
     let agentRecord = null;
     try {
         const identity = await resolveAgent(req);
+        if (identity.mode === 'throttled') {
+            return res.status(429).json({ status: 'BLOCKED', reason: 'Agent rate limit exceeded (60 requests/min) — request denied', agentId: agentId || 'unknown' });
+        }
         if (identity.mode === 'invalid') {
             recordAuthFailure(clientIp(req));
             return res.status(401).json({ status: 'BLOCKED', reason: 'Invalid or revoked API key', agentId: agentId || 'unknown' });
@@ -1287,6 +1326,9 @@ app.post('/api/payments/settle', async (req, res) => {
         let agentRecord = null;
         if (token !== process.env.ADMIN_API_KEY) {
             const identity = await withTimeout(resolveAgent(req), 3000);
+            if (identity && identity.mode === 'throttled') {
+                return res.status(429).json({ status: 'BLOCKED', error: 'Agent rate limit exceeded (60 requests/min)', requestId: req.id });
+            }
             if (!identity || identity.mode !== 'live' || !identity.agent) {
                 recordAuthFailure(clientIp(req));
                 return res.status(401).json({ status: 'BLOCKED', error: 'Unauthorized: invalid or inactive agent key', requestId: req.id });
@@ -1414,6 +1456,9 @@ app.get('/api/warrants/recent', async (req, res) => {
             return res.json({ warrants });
         }
         const identity = await withTimeout(resolveAgent(req), 3000);
+        if (identity && identity.mode === 'throttled') {
+            return res.status(429).json({ error: 'Agent rate limit exceeded (60 requests/min)', requestId: req.id });
+        }
         if (token && identity && identity.mode === 'live' && identity.agent) {
             const warrants = await withTimeout(Warrant.find({ agentId: identity.agent.agentId }).sort({ issuedAt: -1 }).limit(15), 3000);
             return res.json({ warrants });
