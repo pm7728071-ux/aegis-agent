@@ -9,7 +9,10 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-dotenv.config();
+dotenv.config(); // local .env (gitignored)
+// Render "Secret Files": credentials live in a file named `env`, mounted at /etc/secrets/env.
+// dotenv never overrides variables already in process.env, so Render's env vars always win.
+dotenv.config({ path: '/etc/secrets/env', quiet: true });
 const app = express();
 
 // 1. GLOBAL MIDDLEWARE
@@ -127,7 +130,7 @@ const MPESA = {
     consumerSecret: process.env.MPESA_CONSUMER_SECRET || '',
     shortcode: process.env.MPESA_SHORTCODE || '',
     passkey: process.env.MPESA_PASSKEY || '',
-    callbackUrl: process.env.MPESA_CALLBACK_URL || 'https://aegis-agent-4u79.onrender.com/api/mpesa/callback',
+    callbackUrl: 'https://aegis-agent-4u79.onrender.com/api/mpesa/callback', // always this gateway
     accountRef: process.env.MPESA_ACCOUNT_REF || 'AEGIS',
     get baseUrl() {
         return this.environment === 'production'
@@ -602,7 +605,7 @@ app.get('/api/mpesa/config', (req, res) => {
         enabled: MPESA.configured,
         environment: MPESA.environment,
         shortcode: MPESA.configured ? MPESA.shortcode : null,
-        callbackUrl: MPESA.callbackUrl,
+        callbackUrl: 'https://aegis-agent-4u79.onrender.com/api/mpesa/callback',
         accountRef: MPESA.accountRef,
     });
 });
@@ -658,7 +661,7 @@ app.post('/api/mpesa/stkpush', async (req, res) => {
                 PartyA: phone,
                 PartyB: MPESA.shortcode,
                 PhoneNumber: phone,
-                CallBackURL: MPESA.callbackUrl,
+                CallBackURL: 'https://aegis-agent-4u79.onrender.com/api/mpesa/callback',
                 AccountReference: ref,
                 TransactionDesc: 'Aegis toll settlement',
             }),
