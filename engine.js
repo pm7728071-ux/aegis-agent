@@ -611,6 +611,7 @@ app.get('/api/agents/me', async (req, res) => {
             status: agent.status,
             requestCount: agent.requestCount,
             approvedCount: agent.approvedCount,
+            webhookUrl: agent.webhookUrl || '',
             blockedCount: agent.blockedCount,
             totalTollKES: agent.totalTollKES,
             createdAt: agent.createdAt,
