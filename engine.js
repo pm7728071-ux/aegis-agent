@@ -1237,14 +1237,14 @@ app.post('/api/payments/settle', async (req, res) => {
         // 5. Execute via the configured rail. With no rail configured, the settlement is
         //    authorized and recorded — real rails attach here the day credentials arrive.
         const payerPhone = (req.body || {}).payerPhone ? normalizeKenyanPhone((req.body || {}).payerPhone) : null;
-        const rail = getMpesaConfig().enabled ? 'mpesa' : (getIntaSendConfig().enabled ? 'intasend' : 'none');
+        const rail = MPESA.enabled ? 'mpesa' : (INTASEND.enabled ? 'intasend' : 'none');
         let settlement = { rail, executed: rail !== 'none' };
 
         if (rail === 'mpesa' && payerPhone) {
             try {
                 const accessToken = await getMpesaToken();
                 const timestamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
-                const cfg = getMpesaConfig();
+                const cfg = MPESA;
                 const push = await fetch(`${cfg.baseUrl}/mpesa/stkpush/v1/processrequest`, {
                     method: 'POST',
                     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
@@ -1281,7 +1281,7 @@ app.post('/api/payments/settle', async (req, res) => {
                 merchantRequestId: record.warrantId,
                 checkoutRequestId: record.warrantId,
                 amount: record.amount, phone: payerPhone,
-                accountRef: getMpesaConfig().accountRef, provider: 'warrant',
+                accountRef: MPESA.accountRef, provider: 'warrant',
                 agentId: agentRecord ? agentRecord.agentId : 'operator',
                 status: 'PENDING',
                 resultDesc: 'Warranted settlement authorized; no live rail attached',
@@ -1371,11 +1371,10 @@ const server = app.listen(PORT, () => {
 // Graceful shutdown: Render sends SIGTERM on every deploy — drain, don't drop.
 process.on('SIGTERM', () => {
     console.log('🛡️ [SHUTDOWN] SIGTERM received — draining connections');
-    server.close(() => {
-        mongoose.connection.close(false, () => {
-            console.log('🛡️ [SHUTDOWN] Clean exit');
-            process.exit(0);
-        });
+    server.close(async () => {
+        try { await mongoose.connection.close(false); } catch (e) { /* best effort */ }
+        console.log('🛡️ [SHUTDOWN] Clean exit');
+        process.exit(0);
     });
     setTimeout(() => process.exit(0), 10000).unref();
 });
