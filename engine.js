@@ -59,6 +59,38 @@ app.get('/.well-known/security.txt', (req, res) => {
     );
 });
 
+// Public machine-readable security report — the verifiable attack history.
+app.get('/api/security/report', async (req, res) => {
+    try {
+        const [metrics, audits] = await Promise.all([
+            withTimeout(getOrCreateMetrics(), 3000).catch(() => null),
+            withTimeout(Audit.find().sort({ timestamp: -1 }).limit(15), 3000).catch(() => []),
+        ]);
+        const intercepts = metrics && Array.isArray(metrics.rogueBotsCaught)
+            ? metrics.rogueBotsCaught.slice(-10).reverse()
+            : [];
+        res.json({
+            generatedAt: new Date().toISOString(),
+            postureVersion: '2.2.0',
+            posture: [
+                { name: 'Fail-closed core', description: 'Any fault — database, policy, identity — blocks the transaction. Nothing ever authorizes silently.' },
+                { name: 'Hashed API keys', description: 'Agent keys are stored only as SHA-256 hashes, shown once at registration, revocable by operator quarantine.' },
+                { name: 'Honeypot perimeter', description: 'Scanner bait paths (/.env, /.git, /wp-admin and more) answer 403 and jail the probing IP for one hour.' },
+                { name: 'Brute-force jail', description: 'More than 10 failed key attempts from one IP within 10 minutes triggers a 30-minute block.' },
+                { name: 'Traffic ceiling', description: '240 requests/minute per source IP blunts scrapers and lightweight denial-of-service attempts.' },
+                { name: 'Browser armor', description: 'Content-Security-Policy, HSTS, frame-ancestors none, no stack fingerprinting, GET/POST-only CORS.' },
+                { name: 'Immutable audit trail', description: 'Every verdict is persisted with its reason before the response is sent; tolls meter only on approvals.' },
+                { name: 'Rate-fair rails', description: 'Sandbox 20/min, registered agents 120/min, payment prompts 5/min — abuse-priced, integration-friendly.' },
+            ],
+            recentIntercepts: intercepts,
+            recentVerdicts: Array.isArray(audits) ? audits : [],
+            verification: 'This report is generated live at request time. Compare it with GET /api/audit/recent and GET /api/metrics.',
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Security report unavailable', requestId: req.id });
+    }
+});
+
 // Operator-only: free a jailed IP. Registered BEFORE the blocklist so an
 // operator whose own IP got jailed can still unlock from the outside.
 app.post('/api/admin/unblock', requireAdmin, (req, res) => {
@@ -129,6 +161,12 @@ function recordAuthFailure(ip) {
 app.get('/console', (req, res) => {
     res.sendFile(path.join(publicPath, 'console.html'));
 });
+
+// Public transparency page — attack history lives here, never on the landing page
+app.get('/security', (req, res) => {
+    res.sendFile(path.join(publicPath, 'security.html'));
+});
+app.get('/security.js', (req, res) => res.sendFile(path.join(publicPath, 'security.js')));
 
 // Health probe — registered before the page fallback so it answers JSON.
 const VERSION = '2.2.0';

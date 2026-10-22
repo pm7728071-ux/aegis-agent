@@ -30,7 +30,7 @@
         pop($('statVerdicts'), fmtNum(stats.totalVerdicts));
         pop($('statAgents'), fmtNum(stats.agentsRegistered));
         pop($('statTolls'), fmtNum(stats.totalTollKES));
-        pop($('statIntercepts'), fmtNum(stats.rogueIntercepts));
+        pop($('statCeiling'), fmtNum(config && config.policy ? config.policy.maxAmountLimitKES : 0));
       }
 
       var list = $('trailList');
@@ -42,7 +42,7 @@
         list.appendChild(empty);
         return;
       }
-      audits.slice(0, 8).forEach(function (a) {
+      audits.filter(function (a) { return a.decision === 'APPROVED'; }).slice(0, 8).forEach(function (a) {
         var li = document.createElement('li');
         li.className = 'flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3 animate-slideIn';
         var approved = a.decision === 'APPROVED';

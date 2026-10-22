@@ -108,8 +108,8 @@
           <p id="statTolls" class="mt-2 font-mono text-3xl font-semibold text-warn-400 animate-countPop">··</p>
         </div>
         <div class="rounded-xl border border-ink-700 bg-ink-900/80 p-5 shadow-glow animate-slideIn">
-          <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">Rogue Intercepts</p>
-          <p id="statIntercepts" class="mt-2 font-mono text-3xl font-semibold text-danger-400 animate-countPop">··</p>
+          <p class="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-400">Policy Ceiling — KES</p>
+          <p id="statCeiling" class="mt-2 font-mono text-3xl font-semibold text-primary-300 animate-countPop">··</p>
         </div>
       </section>
 
@@ -260,14 +260,14 @@ if verdict["status"] != "APPROVED":
       <!-- Live verdicts -->
       <section class="rounded-xl border border-ink-700 bg-ink-900/80">
         <div class="flex items-center justify-between border-b border-ink-700 px-5 py-4">
-          <h3 class="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">Live Verdict Feed</h3>
-          <span class="font-mono text-[10px] text-slate-500">last 8 verdicts · immutable trail</span>
+          <h3 class="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">Live Activity Feed</h3>
+          <span class="font-mono text-[10px] text-slate-500">recent approved transactions · immutable trail</span>
         </div>
         <ul id="trailList" class="divide-y divide-ink-700/60"></ul>
       </section>
 
       <footer id="footer" class="border-t border-ink-700 pt-6 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-slate-600">
-        AEGIS policy gateway · fail-closed by design · <a href="/console" class="underline decoration-dotted hover:text-primary-300">operator console</a>
+        AEGIS policy gateway · fail-closed by design · <a href="/security" class="underline decoration-dotted hover:text-primary-300">security &amp; transparency</a> · <a href="/console" class="underline decoration-dotted hover:text-primary-300">operator console</a>
       </footer>
     </main>
 

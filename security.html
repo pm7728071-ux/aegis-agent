@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Aegis security and transparency — the defenses protecting the policy gateway, the threats it has stopped, and the full verdict history. Verifiable, on the record." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <title>Aegis — Security &amp; Transparency</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+              mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+            },
+            colors: {
+              ink: {
+                950: '#070a14', 900: '#0b101f', 850: '#0f1629', 800: '#141d35',
+                700: '#1c2745', 600: '#273457', 500: '#34426b',
+              },
+              primary: {
+                300: '#61bdff', 400: '#2aa4ff', 500: '#0a8aff', 600: '#0069db',
+              },
+              accent: { 400: '#22d3a4', 500: '#10b981' },
+              warn: { 400: '#fbbf24' },
+              danger: { 400: '#fb7185', 500: '#ef4444' },
+            },
+            boxShadow: {
+              glow: '0 0 0 1px rgba(42,164,255,0.15), 0 8px 30px -8px rgba(10,138,255,0.35)',
+              dangerGlow: '0 0 0 1px rgba(239,68,68,0.18), 0 8px 30px -8px rgba(239,68,68,0.35)',
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      @keyframes slideIn { 0% { opacity: 0; transform: translateY(6px); } 100% { opacity: 1; transform: translateY(0); } }
+      .animate-slideIn { animation: slideIn .25s ease-out; }
+      html { scroll-behavior: smooth; scrollbar-color: #1c2745 #070a14; }
+    </style>
+  </head>
+  <body class="bg-ink-950 text-slate-200 antialiased">
+    <header class="sticky top-0 z-10 border-b border-ink-700 bg-ink-900/90 backdrop-blur">
+      <div class="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
+        <div class="flex items-center gap-3">
+          <div class="flex h-9 w-9 items-center justify-center rounded-lg border border-primary-500/40 bg-ink-800 shadow-glow">
+            <span class="text-primary-300">🛡️</span>
+          </div>
+          <div>
+            <h1 class="text-sm font-semibold tracking-wide text-slate-100">AEGIS</h1>
+            <p class="text-[10px] uppercase tracking-[0.22em] text-slate-500 font-mono"><a href="/" class="underline decoration-dotted hover:text-primary-300">← gateway home</a></p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 rounded-full border border-ink-600 bg-ink-850 px-4 py-1.5">
+          <span class="h-2 w-2 rounded-full bg-accent-400 animate-pulse"></span>
+          <span class="text-xs font-mono text-slate-300">SECURITY POSTURE v<span id="postureVersion">—</span></span>
+        </div>
+      </div>
+    </header>
+
+    <main class="mx-auto max-w-6xl space-y-14 px-6 py-12">
+      <section class="space-y-4 text-center">
+        <p class="font-mono text-[11px] uppercase tracking-[0.3em] text-primary-300">Transparent by design</p>
+        <h2 class="mx-auto max-w-3xl text-4xl font-bold leading-tight text-slate-100">Security you can <span class="text-primary-400">verify</span>, not just take our word for.</h2>
+        <p class="mx-auto max-w-2xl text-sm leading-relaxed text-slate-400">
+          Every layer defending this gateway is listed below, along with the real,
+          on-the-record history of what it has stopped. The full report is machine-readable —
+          fetch it yourself anytime.
+        </p>
+        <a id="reportLink" href="/api/security/report" class="inline-block rounded-md border border-ink-600 bg-ink-850 px-5 py-2 font-mono text-xs text-slate-200 transition hover:border-primary-400">Download the security report (JSON)</a>
+      </section>
+
+      <section class="space-y-6">
+        <h3 class="font-mono text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Defense layers</h3>
+        <div id="shields" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"></div>
+      </section>
+
+      <div class="grid gap-6 lg:grid-cols-2">
+        <section class="rounded-xl border border-danger-500/30 bg-ink-900/80 shadow-dangerGlow">
+          <div class="flex items-center justify-between border-b border-ink-700 px-5 py-4">
+            <h3 class="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">Threat Radar — stopped probes</h3>
+            <span id="radarCount" class="font-mono text-[10px] text-slate-500">—</span>
+          </div>
+          <ul id="radarList" class="max-h-96 divide-y divide-ink-700/60 overflow-y-auto"></ul>
+        </section>
+
+        <section class="rounded-xl border border-ink-700 bg-ink-900/80">
+          <div class="flex items-center justify-between border-b border-ink-700 px-5 py-4">
+            <h3 class="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">Full verdict history</h3>
+            <span class="font-mono text-[10px] text-slate-500">approved &amp; blocked · immutable</span>
+          </div>
+          <ul id="trailList" class="max-h-96 divide-y divide-ink-700/60 overflow-y-auto"></ul>
+        </section>
+      </div>
+
+      <footer class="border-t border-ink-700 pt-6 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-slate-600">
+        <a href="/" class="underline decoration-dotted hover:text-primary-300">gateway home</a> · report a flaw: <span class="lowercase tracking-normal">/.well-known/security.txt</span>
+      </footer>
+    </main>
+
+    <script src="/security.js"></script>
+  </body>
+</html>

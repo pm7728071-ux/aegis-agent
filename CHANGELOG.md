@@ -3,6 +3,16 @@
 All notable changes to the Aegis Policy Gateway are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.3.0] — 2026-10-22
+
+### Changed
+- Landing page shows only clean product numbers (verdicts, agents, tolls, policy ceiling) — attack counts never appear on the front page
+- Landing activity feed shows approved transactions only
+
+### Added
+- Security & Transparency page at `/security`: defense-layer summary, threat radar of stopped probes, full verdict history
+- Machine-readable live security report at `GET /api/security/report` (JSON) — the verifiable attack record
+
 ## [2.2.0] — 2026-10-22
 
 ### Security
