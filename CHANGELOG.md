@@ -3,6 +3,20 @@
 All notable changes to the Aegis Policy Gateway are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.7.0] — 2026-10-22
+
+### Added
+- Key rotation: POST /api/agents/rotate (live-key auth) issues a new key shown once; the old key dies instantly. 3 rotations/hour/key.
+- Per-agent policies: registration accepts policyLimitKES, always capped at the global ceiling; keyed verdicts enforce the agent's limit ("Agent policy breach") and /api/agents/me reports it.
+- Per-agent rate limiting: 60 requests/min per key across audit, settle, dashboard and ledger endpoints (429 with BLOCKED status on the transaction gate).
+- Key environment tagging: agents are born tagged sandbox or production (from MPESA env) so test keys never masquerade as production credentials.
+
+### Fixed
+- Inverted throttle check: fresh keys were throttled on their first request (caught by the security suite, CASE 8).
+
+### Changed
+- Security suite extended with CASE 8 (key security, 12 checks) — now 37/37.
+
 ## [Unreleased]
 
 ### Added
