@@ -57,6 +57,16 @@ app.get('*', (req, res, next) => {
 
 // Health probe must be registered before the page fallback below.
 const VERSION = '2.1.0';
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        version: VERSION,
+        uptimeSeconds: Math.floor(process.uptime()),
+        dbState: ['disconnected', 'connected', 'connecting', 'disconnecting'][mongoose.connection.readyState] || 'unknown',
+        ts: new Date().toISOString(),
+    });
+});
+
 // 2. MONGOOSE CLOUD DATABASE PIPELINE
 const MONGO_URI = process.env.MONGO_URI;
 
