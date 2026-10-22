@@ -251,6 +251,9 @@ const AgentSchema = new mongoose.Schema({
     keyHash: { type: String, required: true },
     keyPrefix: { type: String, default: '' },
     status: { type: String, enum: ['active', 'quarantined'], default: 'active' },
+    policyLimitKES: { type: Number, default: 0 }, // 0 = inherit the global ceiling
+    environment: { type: String, enum: ['sandbox', 'production'], default: 'sandbox' },
+    rotatedAt: { type: Date, default: null },
     requestCount: { type: Number, default: 0 },
     approvedCount: { type: Number, default: 0 },
     blockedCount: { type: Number, default: 0 },
@@ -436,6 +439,10 @@ async function resolveAgent(req) {
     const token = bearerToken(req);
     if (!token) return { mode: 'sandbox', agent: null };
     const agent = await withTimeout(Agent.findOne({ keyHash: sha256(token) }), 3000);
+    // Per-agent throttle: 60 requests/min per key — a single agent cannot hog the gate.
+    if (agent && rateLimit('agent:' + agent.agentId, 60, 60000)) {
+        return { mode: 'throttled', agent: null };
+    }
     if (!agent) return { mode: 'invalid', agent: null };
     return { mode: 'live', agent };
 }
@@ -592,12 +599,28 @@ app.post('/api/agents/register', async (req, res) => {
         }
         const apiKey = 'agk_' + crypto.randomBytes(24).toString('hex');
         const agentId = 'aegis_ag_' + crypto.randomBytes(5).toString('hex');
+
+        // Per-agent policy: optional, always capped at the global ceiling — an agent
+        // can be tighter than the network but never looser.
+        const policy = await withTimeout(getOrCreatePolicy(), 3000);
+        let agentLimit = 0;
+        if (req.body && req.body.policyLimitKES !== undefined) {
+            const parsedLimit = Number(req.body.policyLimitKES);
+            if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
+                return res.status(400).json({ error: 'Invalid payload: policyLimitKES must be a positive number' });
+            }
+            agentLimit = Math.min(parsedLimit, policy.maxAmountLimitKES);
+        }
+        const environment = process.env.MPESA_ENV === 'production' ? 'production' : 'sandbox';
+
         const agent = await withTimeout(Agent.create({
             agentId,
             name,
             keyHash: sha256(apiKey),
             keyPrefix: apiKey.slice(0, 12),
             webhookUrl: rawWebhook || '',
+            policyLimitKES: agentLimit,
+            environment,
         }), 3000);
         res.status(201).json({
             status: 'REGISTERED',
@@ -605,6 +628,8 @@ app.post('/api/agents/register', async (req, res) => {
             agentId: agent.agentId,
             name: agent.name,
             apiKey,
+            policyLimitKES: agentLimit || policy.maxAmountLimitKES,
+            environment,
             createdAt: agent.createdAt,
         });
     } catch (error) {
@@ -727,9 +752,21 @@ async function auditTransactionHandler(req, res) {
         }
 
         const policy = await withTimeout(getOrCreatePolicy(), 3000);
-        const limit = normalizedCurrency === 'KES'
+        let limit = normalizedCurrency === 'KES'
             ? policy.maxAmountLimitKES
             : policy.maxAmountLimitKES / policy.fxRateKESPerUSD;
+
+        // A registered agent may carry a tighter personal policy — the key IS the policy.
+        const agentLimitKES = (mode === 'live' && agentRecord && agentRecord.policyLimitKES > 0) ? agentRecord.policyLimitKES : 0;
+        if (agentLimitKES > 0) {
+            const agentLimit = normalizedCurrency === 'KES' ? agentLimitKES : agentLimitKES / policy.fxRateKESPerUSD;
+            if (numericAmount > agentLimit) {
+                return reject(
+                    `Agent policy breach: ${numericAmount} ${normalizedCurrency} exceeds this agent's limit of ${agentLimit.toFixed(2)} ${normalizedCurrency} (network ceiling ${limit.toFixed(2)})`,
+                    'AGENT_POLICY_01'
+                );
+            }
+        }
 
         if (numericAmount > limit) {
             return reject(
