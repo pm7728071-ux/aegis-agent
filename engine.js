@@ -16,7 +16,8 @@ dotenv.config({ path: '/etc/secrets/env', quiet: true });
 const app = express();
 
 // 1. GLOBAL MIDDLEWARE
-app.use(cors());
+app.disable('x-powered-by'); // never fingerprint the stack
+app.use(cors({ methods: ['GET', 'POST'] })); // browsers may integrate; only sane verbs allowed
 app.use(express.json({ limit: '100kb' })); // reject oversized payloads
 
 // Standard security headers + per-request tracing (professional plumbing)
@@ -24,6 +25,13 @@ app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    res.setHeader('Content-Security-Policy',
+        "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; " +
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.tailwindcss.com; " +
+        "font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; " +
+        "frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
     req.id = crypto.randomBytes(8).toString('hex');
     res.setHeader('X-Request-Id', req.id);
     next();
@@ -37,9 +45,72 @@ app.use((req, res, next) => {
   next();
 });
 
-// Build-free frontend: static files are served straight from the repo root
+// Build-free frontend — ONLY these assets are public; the repo root is never served.
 const publicPath = __dirname;
-app.use(express.static(publicPath));
+app.get('/landing.js', (req, res) => res.sendFile(path.join(publicPath, 'landing.js')));
+app.get('/console.js', (req, res) => res.sendFile(path.join(publicPath, 'console.js')));
+app.get('/.well-known/security.txt', (req, res) => {
+    res.type('text/plain').send(
+        'Contact: mailto:pm7728071@gmail.com\n' +
+        'Preferred-Languages: en\n' +
+        'Canonical: https://aegis-agent-4u79.onrender.com/.well-known/security.txt\n' +
+        'Expires: 2027-10-22T00:00:00.000Z\n' +
+        'Policy: reports are reviewed within 7 days\n'
+    );
+});
+
+// ---------- SHIELD 1: IP blocklist (fed by honeypot + brute-force guards) ----------
+const ipBlocklist = new Map(); // ip -> unblockAt (ms)
+function blockIp(ip, ms) { ipBlocklist.set(ip, Date.now() + ms); }
+setInterval(() => { const now = Date.now(); for (const [k, t] of ipBlocklist) if (t < now) ipBlocklist.delete(k); }, 60 * 1000).unref();
+app.use((req, res, next) => {
+    const until = ipBlocklist.get(clientIp(req));
+    if (until && until > Date.now()) {
+        return res.status(403).json({ error: 'Access denied', requestId: req.id });
+    }
+    next();
+});
+
+// ---------- SHIELD 2: global traffic ceiling per IP (blunts scrapers and DoS-lite) ----------
+app.use((req, res, next) => {
+    if (!rateLimit('global:' + clientIp(req), 240, 60 * 1000)) {
+        return res.status(429).json({ error: 'Too many requests from this address', requestId: req.id });
+    }
+    next();
+});
+
+// ---------- SHIELD 3: honeypot — scanner bait. Touch it and the IP is jailed an hour. ----------
+const HONEYPOT = /^\/(\.env|\.env\.[a-z0-9.]+|\.git(\/.*)?|\.aws(\/.*)?|\.ssh(\/.*)?|wp-admin|wp-login\.php|phpmyadmin(\/.*)?|admin\.php|config\.php|\.DS_Store|backup\.sql|database\.json|\.htaccess|xmlrpc\.php|console\/shell|etc\/passwd|web\.config)(\/|$)/i;
+app.use((req, res, next) => {
+    if (HONEYPOT.test(req.path)) {
+        blockIp(clientIp(req), 60 * 60 * 1000);
+        console.warn(`🚨 [HONEYPOT TRIP] ${clientIp(req)} probed ${req.path} — IP blocked 1h`);
+        withTimeout(Metric.findOneAndUpdate(
+            { id: 'global_metrics' },
+            { $push: { rogueBotsCaught: {
+                botId: 'SCANNER:' + clientIp(req), reason: 'Honeypot probe: ' + req.path,
+                payloadRiskScore: 'PROBE', channel: 'Perimeter / Honeypot',
+                timestamp: new Date().toISOString(),
+            } } },
+            { new: true, upsert: true }
+        ), 2500).catch(() => {});
+        return res.status(403).json({ error: 'Access denied', requestId: req.id });
+    }
+    next();
+});
+
+// ---------- SHIELD 4: credential brute-force jail ----------
+const authFailures = new Map(); // ip -> {count, windowStart}
+function recordAuthFailure(ip) {
+    const now = Date.now();
+    let f = authFailures.get(ip);
+    if (!f || now - f.windowStart > 10 * 60 * 1000) { f = { windowStart: now, count: 0 }; authFailures.set(ip, f); }
+    f.count += 1;
+    if (f.count > 10) {
+        blockIp(ip, 30 * 60 * 1000);
+        console.warn(`🚨 [AUTH GUARD] ${ip} jailed 30 min after ${f.count} failed key attempts`);
+    }
+}
 
 // Operator console lives at /console; landing page at /
 app.get('/console', (req, res) => {
@@ -47,7 +118,7 @@ app.get('/console', (req, res) => {
 });
 
 // Health probe — registered before the page fallback so it answers JSON.
-const VERSION = '2.1.0';
+const VERSION = '2.2.0';
 app.get('/health', (req, res) => {
     res.json({
         status: 'ok',
@@ -269,6 +340,7 @@ function requireAdmin(req, res, next) {
     }
     const token = bearerToken(req);
     if (!token || token !== adminKey) {
+        recordAuthFailure(clientIp(req));
         return res.status(401).json({ error: 'Unauthorized: valid admin key required for this operation' });
     }
     next();
@@ -307,7 +379,7 @@ app.get('/api/config', async (req, res) => {
         const policy = await withTimeout(getOrCreatePolicy(), 3000);
         res.json({
             status: "ACTIVE",
-            gateway: "Aegis Secure Proxy v2.1.0",
+            gateway: "Aegis Secure Proxy v2.2.0",
             environment: "Production/Cloud Cluster Sync Operational",
             firewallRulesLoaded: true,
             policy: {
@@ -321,7 +393,7 @@ app.get('/api/config', async (req, res) => {
         // Degraded mode: report env-default policy so consoles still render
         res.json({
             status: "ACTIVE",
-            gateway: "Aegis Secure Proxy v2.1.0",
+            gateway: "Aegis Secure Proxy v2.2.0",
             environment: "Production/Cloud Cluster Sync Operational",
             firewallRulesLoaded: true,
             policy: {
@@ -349,7 +421,7 @@ app.post('/api/config', requireAdmin, async (req, res) => {
         );
         res.json({
             status: "ACTIVE",
-            gateway: "Aegis Secure Proxy v2.1.0",
+            gateway: "Aegis Secure Proxy v2.2.0",
             environment: "Production/Cloud Cluster Sync Operational",
             firewallRulesLoaded: true,
             policy: {
@@ -411,6 +483,7 @@ app.get('/api/agents/me', async (req, res) => {
     try {
         const { mode, agent } = await resolveAgent(req);
         if (mode !== 'live' || !agent) {
+            recordAuthFailure(clientIp(req));
             return res.status(401).json({ error: 'Unauthorized: a valid registered API key is required' });
         }
         res.json({
@@ -447,6 +520,7 @@ async function auditTransactionHandler(req, res) {
     try {
         const identity = await resolveAgent(req);
         if (identity.mode === 'invalid') {
+            recordAuthFailure(clientIp(req));
             return res.status(401).json({ status: 'BLOCKED', reason: 'Invalid or revoked API key', agentId: agentId || 'unknown' });
         }
         mode = identity.mode;
@@ -460,7 +534,7 @@ async function auditTransactionHandler(req, res) {
 
     const normalizedAgent = mode === 'live'
         ? agentRecord.agentId
-        : ((agentId || '').toString().trim() || 'Unnamed_External_Agent');
+        : ((agentId || '').toString().trim().slice(0, 64) || 'Unnamed_External_Agent');
 
     // Rate limits: sandbox per IP, registered agents per agent
     const rateKey = mode === 'live' ? 'audit:agent:' + agentRecord.agentId : 'audit:ip:' + clientIp(req);

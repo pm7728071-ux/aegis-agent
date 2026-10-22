@@ -3,6 +3,18 @@
 All notable changes to the Aegis Policy Gateway are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 
+## [2.2.0] — 2026-10-22
+
+### Security
+- Repo-root static serving removed: only `landing.js` and `console.js` are public assets — source files (`engine.js`, configs, data files) are no longer downloadable
+- Honeypot perimeter: scanner bait paths (`/.env`, `/.git`, `/wp-admin`, `/phpmyadmin`, …) answer 403 and jail the probing IP for one hour, logged to the threat radar
+- Credential brute-force jail: >10 failed key attempts per IP in 10 minutes blocks the IP for 30 minutes (audit gate, agent keys, admin rail)
+- Global traffic ceiling: 240 requests/minute per IP blunts scrapers and lightweight DoS
+- Content-Security-Policy, HSTS, and Permissions-Policy headers on every response; `x-powered-by` fingerprint removed
+- CORS restricted to GET/POST
+- User-supplied agent IDs capped at 64 characters
+- `/.well-known/security.txt` published for vulnerability reports
+
 ## [2.1.0] — 2026-10-22
 
 ### Added
