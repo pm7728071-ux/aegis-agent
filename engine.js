@@ -1204,7 +1204,7 @@ app.post('/api/payments/settle', async (req, res) => {
         }
 
         // 2. Pull the authoritative record — fail-closed if the ledger is unreachable.
-        const record = await withTimeout(() => Warrant.findOne({ warrantId: warrant.warrantId }), 3000);
+        const record = await withTimeout(Warrant.findOne({ warrantId: warrant.warrantId }), 3000);
         if (!record) return res.status(403).json({ status: 'BLOCKED', error: 'Warrant not found in the ledger: refused', requestId: req.id });
 
         // 3. Binding + status checks — the warrant must match its ledger record exactly.
@@ -1308,12 +1308,12 @@ app.get('/api/warrants/recent', async (req, res) => {
     const token = bearerToken(req);
     try {
         if (token && token === process.env.ADMIN_API_KEY) {
-            const warrants = await withTimeout(() => Warrant.find({}).sort({ issuedAt: -1 }).limit(15), 3000);
+            const warrants = await withTimeout(Warrant.find({}).sort({ issuedAt: -1 }).limit(15), 3000);
             return res.json({ warrants });
         }
         const agentRecord = await withTimeout(resolveAgent(token), 3000);
         if (token && agentRecord) {
-            const warrants = await withTimeout(() => Warrant.find({ agentId: agentRecord.agentId }).sort({ issuedAt: -1 }).limit(15), 3000);
+            const warrants = await withTimeout(Warrant.find({ agentId: agentRecord.agentId }).sort({ issuedAt: -1 }).limit(15), 3000);
             return res.json({ warrants });
         }
         res.status(401).json({ error: 'Unauthorized', requestId: req.id });

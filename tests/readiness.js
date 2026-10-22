@@ -196,8 +196,11 @@ async function liveSuite() {
   // 3a. Sandbox burst: 30 sequential requests must hit the 20/min wall
   let ok200 = 0, hit429 = 0, badVerdicts = 0;
   const auditIds = [];
-  for (let i = 0; i < 30; i++) {
-    const r = await post('/api/audit', { agentId: 'BurstProbe', amount: 1, currency: 'KES' });
+  // concurrent burst: all 30 land inside one rate-limit window, so the wall must fire
+  const burstResults = await Promise.all(
+    Array.from({ length: 30 }, () => post('/api/audit', { agentId: 'BurstProbe', amount: 1, currency: 'KES' }))
+  );
+  for (const r of burstResults) {
     if (r.status === 200) { ok200++; if (r.data.auditId) auditIds.push(r.data.auditId); if (r.data.status !== 'APPROVED') badVerdicts++; }
     else if (r.status === 429) { hit429++; if (r.data.status !== 'BLOCKED') badVerdicts++; }
     else badVerdicts++;
