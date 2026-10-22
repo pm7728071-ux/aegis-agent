@@ -53,6 +53,19 @@ via `GET /api/agents/me`.
 - `ADMIN_API_KEY` — operator key for the admin rail
 - `POLICY_MAX_TX_KES` (default 50000), `POLICY_APPROVAL_THRESHOLD_KES` (20000), `FX_RATE_KES_PER_USD` (130)
 
+## Operations
+
+| Signal | Endpoint |
+|---|---|
+| Health (uptime, DB state) | `GET /health` |
+| Version + commit | `GET /api/version` |
+| Request tracing | `X-Request-Id` on every response |
+| Unknown API routes | JSON 404 with `requestId` |
+| Deploys | Graceful SIGTERM drain — no dropped connections |
+
+Every request carries an `X-Request-Id`; unhandled faults return a clean JSON 500 and never
+crash the process. See [CHANGELOG.md](CHANGELOG.md) for release history.
+
 ## Run locally
 
 ```bash

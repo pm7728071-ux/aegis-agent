@@ -17,7 +17,17 @@ const app = express();
 
 // 1. GLOBAL MIDDLEWARE
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '100kb' })); // reject oversized payloads
+
+// Standard security headers + per-request tracing (professional plumbing)
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    req.id = crypto.randomBytes(8).toString('hex');
+    res.setHeader('X-Request-Id', req.id);
+    next();
+});
 
 // Never let browsers serve a stale product page: HTML/JS must revalidate
 app.use((req, res, next) => {
@@ -285,7 +295,7 @@ app.get('/api/config', async (req, res) => {
         const policy = await withTimeout(getOrCreatePolicy(), 3000);
         res.json({
             status: "ACTIVE",
-            gateway: "Aegis Secure Proxy v2.0.0",
+            gateway: "Aegis Secure Proxy v2.1.0",
             environment: "Production/Cloud Cluster Sync Operational",
             firewallRulesLoaded: true,
             policy: {
@@ -299,7 +309,7 @@ app.get('/api/config', async (req, res) => {
         // Degraded mode: report env-default policy so consoles still render
         res.json({
             status: "ACTIVE",
-            gateway: "Aegis Secure Proxy v2.0.0",
+            gateway: "Aegis Secure Proxy v2.1.0",
             environment: "Production/Cloud Cluster Sync Operational",
             firewallRulesLoaded: true,
             policy: {
@@ -327,7 +337,7 @@ app.post('/api/config', requireAdmin, async (req, res) => {
         );
         res.json({
             status: "ACTIVE",
-            gateway: "Aegis Secure Proxy v2.0.0",
+            gateway: "Aegis Secure Proxy v2.1.0",
             environment: "Production/Cloud Cluster Sync Operational",
             firewallRulesLoaded: true,
             policy: {
@@ -978,8 +988,60 @@ app.post('/api/intasend/webhook', express.raw({ type: '*/*' }), async (req, res)
     res.json({ received: true });
 });
 
-// 5. BOOT SERVER INSTANCE
+// 5. OPERATIONS LAYER — health, version, JSON errors, graceful shutdown.
+const VERSION = '2.1.0';
+
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        version: VERSION,
+        uptimeSeconds: Math.floor(process.uptime()),
+        dbState: ['disconnected', 'connected', 'connecting', 'disconnecting'][mongoose.connection.readyState] || 'unknown',
+        ts: new Date().toISOString(),
+    });
+});
+
+app.get('/api/version', (req, res) => {
+    res.json({
+        name: 'aegis-policy-gateway',
+        version: VERSION,
+        commit: process.env.RENDER_GIT_COMMIT || null,
+        node: process.version,
+    });
+});
+
+// Unknown API routes answer JSON, never the Express default HTML.
+// Unknown pages fall back to the landing page (SPA convention).
+app.use((req, res) => {
+    if (req.url.startsWith('/api')) {
+        return res.status(404).json({ error: 'Endpoint not found', requestId: req.id });
+    }
+    res.sendFile(path.join(publicPath, 'index.html'));
+});
+
+// Last-resort handler: a fault in any route answers cleanly and the process survives.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+    console.error(`❌ [${req.id}] Unhandled route fault:`, err.message);
+    if (res.headersSent) return;
+    res.status(500).json({ error: 'Internal gateway fault — nothing settled, nothing authorized', requestId: req.id });
+});
+
+// 6. BOOT SERVER INSTANCE
 const PORT = process.env.PORT || 4379;
-app.listen(PORT, () => {
-    console.log(`🛡️ [SYSTEM OPERATIONAL] Aegis Policy Gateway v2.0.0 Deployed on Port: ${PORT}`);
+const server = app.listen(PORT, () => {
+    console.log(`🛡️ [SYSTEM OPERATIONAL] Aegis Policy Gateway v${VERSION} — Port ${PORT}`);
+    console.log(`   rails: daraja=${MPESA.configured ? MPESA.environment : 'off'} intasend=${INTASEND.configured ? INTASEND.environment : 'off'} admin=${process.env.ADMIN_API_KEY ? 'on' : 'off'}`);
+});
+
+// Graceful shutdown: Render sends SIGTERM on every deploy — drain, don't drop.
+process.on('SIGTERM', () => {
+    console.log('🛡️ [SHUTDOWN] SIGTERM received — draining connections');
+    server.close(() => {
+        mongoose.connection.close(false, () => {
+            console.log('🛡️ [SHUTDOWN] Clean exit');
+            process.exit(0);
+        });
+    });
+    setTimeout(() => process.exit(0), 10000).unref();
 });
