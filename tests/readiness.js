@@ -164,6 +164,34 @@ async function liveSuite() {
     newEntries.every(a => a.decision !== 'APPROVED' || a.tollKES > 0) &&
     newEntries.every(a => a.decision !== 'BLOCKED' || !a.tollKES));
 
+  // ---- 6. Payment warrants: settlement trusts ONLY signed single-use warrants
+  const wAudit = await post('/api/audit', { agentId: AGENT, amount: 1, currency: 'KES' }, { key: KEY });
+  const warrant = (wAudit.data || {}).warrant;
+  check('6. warrants', 'live approval issues a signed warrant', !!warrant && !!warrant.warrantId && !!warrant.signature,
+    warrant ? `warrantId=${warrant.warrantId.slice(0, 16)}…` : 'no warrant in response');
+
+  const wNo = await post('/api/payments/settle', { payerPhone: '254700000000' }, { key: KEY });
+  check('6. warrants', 'settlement without a warrant is refused', wNo.status === 403 && wNo.data.status === 'BLOCKED',
+    `status=${wNo.status}`);
+
+  const wFake = await post('/api/payments/settle', { warrant: { ...warrant, amount: 99999 } }, { key: KEY });
+  check('6. warrants', 'tampered warrant refused', wFake.status === 403, `status=${wFake.status}`);
+
+  const wBadSig = await post('/api/payments/settle', { warrant: { ...warrant, signature: 'f'.repeat(64) } }, { key: KEY });
+  check('6. warrants', 'forged signature refused', wBadSig.status === 403, `status=${wBadSig.status}`);
+
+  const wSettle = await post('/api/payments/settle', { warrant }, { key: KEY });
+  check('6. warrants', 'valid warrant settles', wSettle.ok && wSettle.data.status === 'SETTLED',
+    `status=${wSettle.status} rail=${(wSettle.data || {}).rail}`);
+
+  const wReplay = await post('/api/payments/settle', { warrant }, { key: KEY });
+  check('6. warrants', 'replayed warrant refused (single-use)', wReplay.status === 409, `status=${wReplay.status}`);
+
+  const wTrail = await get('/api/warrants/recent', { key: KEY });
+  check('6. warrants', 'warrant ledger visible to the owning agent',
+    wTrail.ok && Array.isArray(wTrail.data.warrants) && wTrail.data.warrants.some(w => w.warrantId === warrant.warrantId),
+    `status=${wTrail.status}`);
+
   // ---- 3. Repeated requests: rate limits, replays, duplicates
   // 3a. Sandbox burst: 30 sequential requests must hit the 20/min wall
   let ok200 = 0, hit429 = 0, badVerdicts = 0;
