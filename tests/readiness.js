@@ -89,6 +89,13 @@ async function failClosedSuite() {
 async function liveSuite() {
   console.log(`\n=== LIVE PRODUCTION SUITE — ${BASE} ===`);
 
+  // The suite itself makes deliberate failed-auth attempts; clear any accumulated
+  // brute-force counter so the run starts from a clean slate (admin-gated).
+  if (ADMIN_KEY) {
+    const un = await post('/api/admin/unblock', {}, { adminKey: ADMIN_KEY }).catch(() => null);
+    if (un && un.data && un.data.success) console.log(`  [setup] auth guard cleared for ${un.data.ip}`);
+  }
+
   // ---- 5a. Register a dedicated test agent (key issuance + format)
   const reg = await post('/api/agents/register', { name: 'ReadinessProbe', webhookUrl: 'https://example.com/aegis-hook' });
   check('5. keys', 'registration issues an agent id + key', reg.ok && !!reg.data.agentId && !!reg.data.apiKey,
