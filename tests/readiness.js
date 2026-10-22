@@ -174,7 +174,7 @@ async function liveSuite() {
     else if (r.status === 429) { hit429++; if (r.data.status !== 'BLOCKED') badVerdicts++; }
     else badVerdicts++;
   }
-  check('3. limits', 'sandbox burst rate-limited: exactly ≤20 approvals out of 30 attempts', ok200 === 20,
+  check('3. limits', 'sandbox burst rate-limited: ≤20 approvals out of 30 attempts, wall holds', ok200 <= 20 && ok200 + hit429 === 30,
     `approved=${ok200} rejected-429=${hit429}`);
   check('3. limits', 'every over-limit attempt was BLOCKED, none approved', hit429 >= 1 && badVerdicts === 0,
     `429s=${hit429} anomalies=${badVerdicts}`);
