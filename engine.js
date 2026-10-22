@@ -94,9 +94,11 @@ app.get('/api/security/report', async (req, res) => {
 // Operator-only: free a jailed IP. Registered BEFORE the blocklist so an
 // operator whose own IP got jailed can still unlock from the outside.
 app.post('/api/admin/unblock', requireAdmin, (req, res) => {
-    const ip = String((req.body || {}).ip || '').trim();
+    // No ip (or 'self') → unblock the caller's own address: an operator whose IP was jailed can always free themselves.
+    const raw = String((req.body || {}).ip || 'self').trim();
+    const ip = (raw === '' || raw === 'self') ? clientIp(req) : raw;
     if (!/^[0-9a-fA-F.:]{3,45}$/.test(ip)) {
-        return res.status(400).json({ error: 'Invalid payload: ip must be an IPv4/IPv6 address', requestId: req.id });
+        return res.status(400).json({ error: 'Invalid payload: ip must be an IPv4/IPv6 address or "self"', requestId: req.id });
     }
     const wasJailed = ipBlocklist.delete(ip);
     authFailures.delete(ip);
