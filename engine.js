@@ -266,6 +266,38 @@ const PaymentSchema = new mongoose.Schema({
 
 const Payment = mongoose.model('Payment', PaymentSchema);
 
+// 3f. PAYMENT WARRANTS — signed single-use authorizations binding verdicts to settlement.
+// A warrant is the ONLY thing the settlement executor accepts. Without one, no money moves.
+const WarrantSchema = new mongoose.Schema({
+    warrantId: { type: String, required: true, unique: true },
+    auditId: { type: String, required: true },
+    agentId: { type: String, required: true },
+    amount: { type: Number, required: true },
+    currency: { type: String, required: true },
+    status: { type: String, enum: ['ISSUED', 'SETTLED', 'FAILED'], default: 'ISSUED' },
+    signature: { type: String, required: true },
+    issuedAt: { type: Date, default: Date.now },
+    expiresAt: { type: Date, required: true },
+    settledAt: { type: Date },
+    settlementNote: { type: String },
+});
+const Warrant = mongoose.model('Warrant', WarrantSchema);
+
+// The signing key is derived from the operator secret — no new secrets to manage.
+const warrantSigningKey = crypto.createHmac('sha256', process.env.ADMIN_API_KEY || 'aegis-local-dev').update('aegis-warrant-signing-v1').digest('hex');
+const warrantCanonical = (w) => `${w.warrantId}|${w.auditId}|${w.agentId}|${w.amount}|${w.currency}|${w.expiresAt}`;
+const warrantSign = (w) => crypto.createHmac('sha256', warrantSigningKey).update(warrantCanonical(w)).digest('hex');
+const warrantVerify = (w) => {
+    if (!w || typeof w !== 'object') return false;
+    const { signature } = w;
+    if (!signature || typeof signature !== 'string') return false;
+    const expected = warrantSign(w);
+    const a = Buffer.from(signature), b = Buffer.from(expected);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+};
+const WARRANT_TTL_MS = 10 * 60 * 1000; // a warrant authorizes settlement within 10 minutes
+
+
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 
 // ---------- M-Pesa Daraja configuration (fail-closed until configured) ----------
@@ -667,6 +699,28 @@ async function auditTransactionHandler(req, res) {
         );
         await agentCounters('APPROVED', toll);
 
+        // Live, authenticated approvals receive a signed single-use payment warrant.
+        let warrant = null;
+        if (mode === 'live' && agentRecord) {
+            try {
+                const w = {
+                    warrantId: 'aegis_wt_' + crypto.randomBytes(12).toString('hex'),
+                    auditId: audit.id,
+                    agentId: agentRecord.agentId,
+                    amount: numericAmount,
+                    currency: normalizedCurrency,
+                    expiresAt: Date.now() + WARRANT_TTL_MS,
+                };
+                w.signature = warrantSign(w);
+                await Warrant.create({ ...w });
+                warrant = w;
+                console.log(`🔥 [WARRANT] Issued ${w.warrantId} to ${agentRecord.agentId} for ${numericAmount} ${normalizedCurrency}`);
+            } catch (wErr) {
+                // Fail-closed: if the warrant cannot be issued, the approval stands but settlement stays locked.
+                console.error('Warrant issuance fault (settlement stays locked):', wErr.message);
+            }
+        }
+
         res.status(200).json({
             status: 'APPROVED',
             reason: 'Transaction within sovereign policy limits',
@@ -678,6 +732,7 @@ async function auditTransactionHandler(req, res) {
             tollKES: toll,
             auditId: audit.id,
             settled: false, // Metered toll accounting; live payment-rail settlement available on request.
+            warrant, // present only for authenticated live approvals — the ONLY key the settlement executor accepts
         });
     } catch (error) {
         // Defensive freeze: policy engine unreachable — block by default.
@@ -1123,6 +1178,148 @@ app.post('/api/intasend/webhook', express.raw({ type: '*/*' }), async (req, res)
         console.error('❌ IntaSend webhook fault:', err.message);
     }
     res.json({ received: true });
+});
+
+// 4f. SETTLEMENT EXECUTOR — the ONLY door to real money movement. No warrant, no settlement.
+app.post('/api/payments/settle', async (req, res) => {
+    const token = bearerToken(req);
+    try {
+        if (!token) return res.status(401).json({ status: 'BLOCKED', error: 'Unauthorized: an active agent key or the admin key is required to settle payments', requestId: req.id });
+
+        let agentRecord = null;
+        if (token !== process.env.ADMIN_API_KEY) {
+            agentRecord = await withTimeout(resolveAgent(token), 3000);
+            if (!agentRecord) return res.status(401).json({ status: 'BLOCKED', error: 'Unauthorized: invalid or inactive agent key', requestId: req.id });
+            if (agentRecord.status === 'quarantined') return res.status(403).json({ status: 'BLOCKED', reason: 'Agent is quarantined by operator order and may not transact', requestId: req.id });
+        }
+
+        const warrant = (req.body || {}).warrant;
+        if (!warrant || !warrant.warrantId) {
+            return res.status(403).json({ status: 'BLOCKED', error: 'No payment warrant presented. The executor settles only against warrants issued by an APPROVED live verdict.', requestId: req.id });
+        }
+
+        // 1. Cryptographic check first — tampered or forged warrants never touch the database.
+        if (!warrantVerify(warrant)) {
+            return res.status(403).json({ status: 'BLOCKED', error: 'Warrant signature invalid: forged or tampered warrant refused', requestId: req.id });
+        }
+
+        // 2. Pull the authoritative record — fail-closed if the ledger is unreachable.
+        const record = await withTimeout(() => Warrant.findOne({ warrantId: warrant.warrantId }), 3000);
+        if (!record) return res.status(403).json({ status: 'BLOCKED', error: 'Warrant not found in the ledger: refused', requestId: req.id });
+
+        // 3. Binding + status checks — the warrant must match its ledger record exactly.
+        if (record.amount !== warrant.amount || record.currency !== warrant.currency) {
+            return res.status(403).json({ status: 'BLOCKED', error: 'Warrant does not match its ledger record', requestId: req.id });
+        }
+        if (record.status !== 'ISSUED') {
+            return res.status(409).json({ status: 'BLOCKED', error: `Warrant already ${record.status}: single-use enforcement, replay refused`, requestId: req.id });
+        }
+        if (Date.now() > record.expiresAt.getTime()) {
+            await Warrant.updateOne({ warrantId: record.warrantId }, { status: 'FAILED', settlementNote: 'expired' });
+            return res.status(403).json({ status: 'BLOCKED', error: 'Warrant expired: re-request authorization from the gate', requestId: req.id });
+        }
+
+        // 4. Atomic single-use claim — beats any race or duplicate submission.
+        const claimed = await Warrant.findOneAndUpdate(
+            { warrantId: record.warrantId, status: 'ISSUED' },
+            { status: 'SETTLED', settledAt: new Date(), settlementNote: 'claimed by settlement executor' },
+            { new: true }
+        );
+        if (!claimed) {
+            return res.status(409).json({ status: 'BLOCKED', error: 'Warrant already claimed: single-use enforcement, replay refused', requestId: req.id });
+        }
+
+        // 5. Execute via the configured rail. With no rail configured, the settlement is
+        //    authorized and recorded — real rails attach here the day credentials arrive.
+        const payerPhone = (req.body || {}).payerPhone ? normalizeKenyanPhone((req.body || {}).payerPhone) : null;
+        const rail = getMpesaConfig().enabled ? 'mpesa' : (getIntaSendConfig().enabled ? 'intasend' : 'none');
+        let settlement = { rail, executed: rail !== 'none' };
+
+        if (rail === 'mpesa' && payerPhone) {
+            try {
+                const accessToken = await getMpesaToken();
+                const timestamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+                const cfg = getMpesaConfig();
+                const push = await fetch(`${cfg.baseUrl}/mpesa/stkpush/v1/processrequest`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        BusinessShortCode: cfg.shortcode,
+                        Password: Buffer.from(cfg.shortcode + cfg.passkey + timestamp).toString('base64'),
+                        Timestamp: timestamp,
+                        TransactionType: 'CustomerPayBillOnline',
+                        Amount: Math.round(record.amount),
+                        PartyA: payerPhone,
+                        PartyB: cfg.shortcode,
+                        PhoneNumber: payerPhone,
+                        AccountReference: cfg.accountRef,
+                        TransactionDesc: 'Aegis warranted settlement',
+                        CallBackURL: 'https://aegis-agent-4u79.onrender.com/api/mpesa/callback',
+                    }),
+                }).then(r => r.json());
+                await Payment.create({
+                    merchantRequestId: push.MerchantRequestID || null,
+                    checkoutRequestId: push.CheckoutRequestID || null,
+                    amount: record.amount, phone: payerPhone,
+                    accountRef: cfg.accountRef, provider: 'daraja',
+                    agentId: agentRecord ? agentRecord.agentId : 'operator',
+                    status: push.ResponseCode === '0' ? 'PENDING' : 'FAILED',
+                    resultDesc: push.CustomerMessage || push.errorMessage || null,
+                    warrantId: record.warrantId,
+                });
+                settlement.payment = { checkoutRequestId: push.CheckoutRequestID, state: push.ResponseCode === '0' ? 'PUSH_SENT' : 'REFUSED', desc: push.CustomerMessage || push.errorMessage };
+            } catch (railErr) {
+                console.error('Rail execution fault:', railErr.message);
+            }
+        } else {
+            await Payment.create({
+                merchantRequestId: record.warrantId,
+                checkoutRequestId: record.warrantId,
+                amount: record.amount, phone: payerPhone,
+                accountRef: getMpesaConfig().accountRef, provider: 'warrant',
+                agentId: agentRecord ? agentRecord.agentId : 'operator',
+                status: 'PENDING',
+                resultDesc: 'Warranted settlement authorized; no live rail attached',
+                warrantId: record.warrantId,
+            });
+            settlement.authorized = true;
+        }
+
+        res.status(200).json({
+            status: 'SETTLED',
+            warrantId: record.warrantId,
+            auditId: record.auditId,
+            agentId: record.agentId,
+            amount: record.amount,
+            currency: record.currency,
+            ...settlement,
+            note: rail === 'none'
+                ? 'Warrant consumed and settlement authorized. With a live rail attached, this same call moves real money.'
+                : 'Warrant consumed. Payment instruction dispatched to the configured rail.',
+        });
+    } catch (err) {
+        console.error('Settlement executor fault:', err.message);
+        res.status(503).json({ status: 'BLOCKED', error: 'Settlement executor fault: refused by default, no money moved', requestId: req.id });
+    }
+});
+
+// Warrant transparency: recent warrants (admin sees all, agents see their own)
+app.get('/api/warrants/recent', async (req, res) => {
+    const token = bearerToken(req);
+    try {
+        if (token && token === process.env.ADMIN_API_KEY) {
+            const warrants = await withTimeout(() => Warrant.find({}).sort({ issuedAt: -1 }).limit(15), 3000);
+            return res.json({ warrants });
+        }
+        const agentRecord = await withTimeout(resolveAgent(token), 3000);
+        if (token && agentRecord) {
+            const warrants = await withTimeout(() => Warrant.find({ agentId: agentRecord.agentId }).sort({ issuedAt: -1 }).limit(15), 3000);
+            return res.json({ warrants });
+        }
+        res.status(401).json({ error: 'Unauthorized', requestId: req.id });
+    } catch (err) {
+        res.status(503).json({ error: 'Warrant ledger unreachable', requestId: req.id });
+    }
 });
 
 // 5. OPERATIONS LAYER — health, version, JSON errors, graceful shutdown.
