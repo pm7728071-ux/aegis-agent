@@ -209,6 +209,67 @@
     }).catch(function () { showFlash('danger', 'Settlement layer timeout — retry.'); });
   });
 
-  refresh();
+  // ----- M-Pesa rail -----
+  function refreshMpesa() {
+    fetch('/api/mpesa/config').then(function (r) { return r.ok ? r.json() : Promise.reject(); }).catch(function () { return null; }).then(function (cfg) {
+      var el = $('mpesaState');
+      if (!cfg) { el.textContent = 'rail state unknown'; return; }
+      el.textContent = cfg.enabled
+        ? '● LIVE — ' + cfg.environment + ' · paybill ' + cfg.shortcode
+        : '○ DISABLED — Daraja credentials not configured on the gateway';
+      el.className = 'font-mono text-[10px] ' + (cfg.enabled ? 'text-accent-400' : 'text-slate-500');
+    });
+    fetch('/api/mpesa/payments/recent').then(function (r) { return r.ok ? r.json() : Promise.reject(); }).catch(function () { return []; }).then(function (pays) {
+      var list = $('mpesaRecent');
+      list.textContent = '';
+      (pays || []).slice(0, 5).forEach(function (p) {
+        var li = document.createElement('li');
+        li.className = 'flex items-center justify-between gap-3 px-1 py-1.5 font-mono text-[10px] animate-slideIn';
+        var left = document.createElement('span');
+        left.textContent = p.amount + ' KES · ' + p.phone;
+        var tone = p.status === 'SUCCESS' ? 'text-accent-400' : p.status === 'FAILED' ? 'text-danger-400' : 'text-warn-400';
+        left.className = 'text-slate-400 truncate';
+        var right = document.createElement('span');
+        right.className = tone + ' shrink-0';
+        right.textContent = p.status + (p.receiptNumber ? ' · ' + p.receiptNumber : '');
+        li.appendChild(left); li.appendChild(right);
+        list.appendChild(li);
+      });
+    });
+  }
+
+  $('mpesaForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (!adminKey) { alert('Enter your Operator Admin Key first (field above).'); return; }
+    var btn = e.target.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    var body = {
+      amount: Number($('mpesaAmount').value),
+      phoneNumber: $('mpesaPhone').value.trim(),
+    };
+    if ($('mpesaRef').value.trim()) body.accountRef = $('mpesaRef').value.trim();
+    fetch('/api/mpesa/stkpush', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + adminKey },
+      body: JSON.stringify(body),
+    }).then(function (res) { return res.json().then(function (d) { return { ok: res.ok, data: d }; }); })
+      .then(function (r) {
+        var box = $('mpesaResult');
+        box.classList.remove('hidden');
+        if (r.ok) {
+          box.textContent = 'PROMPT SENT to ' + r.data.phone + ' — ' + r.data.amount + ' KES. Have them enter the PIN.';
+          $('mpesaForm').reset();
+        } else {
+          box.className = 'mt-2 rounded-lg border border-danger-500/40 bg-danger-500/10 px-3 py-2 font-mono text-[11px] text-danger-400';
+          box.textContent = (r.data && (r.data.error || r.data.detail && JSON.stringify(r.data.detail))) || 'Push failed';
+          setTimeout(function () { box.className = 'hidden rounded-lg border border-accent-500/40 bg-accent-500/10 px-3 py-2 font-mono text-[11px] text-accent-400'; }, 6000);
+        }
+        refreshMpesa();
+      }).finally(function () { btn.disabled = false; });
+  });
+
+  refreshMpesa();
+  setInterval(refreshMpesa, 10000);
+    refresh();
   setInterval(refresh, 5000);
 })();

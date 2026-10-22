@@ -100,7 +100,67 @@ const AgentSchema = new mongoose.Schema({
 
 const Agent = mongoose.model('Agent', AgentSchema);
 
+// 3c-2. M-PESA PAYMENTS — live Daraja STK-push settlement records.
+const PaymentSchema = new mongoose.Schema({
+    checkoutRequestId: { type: String, required: true, unique: true },
+    merchantRequestId: { type: String },
+    amount: { type: Number, required: true },
+    phone: { type: String, required: true },
+    accountRef: { type: String, default: 'AEGIS' },
+    agentId: { type: String },
+    status: { type: String, enum: ['PENDING', 'SUCCESS', 'FAILED'], default: 'PENDING' },
+    resultDesc: { type: String, default: '' },
+    receiptNumber: { type: String },
+    rawCallback: { type: Object },
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now },
+});
+
+const Payment = mongoose.model('Payment', PaymentSchema);
+
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
+
+// ---------- M-Pesa Daraja configuration (fail-closed until configured) ----------
+const MPESA = {
+    environment: process.env.MPESA_ENVIRONMENT || 'sandbox',
+    consumerKey: process.env.MPESA_CONSUMER_KEY || '',
+    consumerSecret: process.env.MPESA_CONSUMER_SECRET || '',
+    shortcode: process.env.MPESA_SHORTCODE || '',
+    passkey: process.env.MPESA_PASSKEY || '',
+    callbackUrl: process.env.MPESA_CALLBACK_URL || 'https://aegis-agent-4u79.onrender.com/api/mpesa/callback',
+    accountRef: process.env.MPESA_ACCOUNT_REF || 'AEGIS',
+    get baseUrl() {
+        return this.environment === 'production'
+            ? 'https://api.safaricom.co.ke'
+            : 'https://sandbox.safaricom.co.ke';
+    },
+    get configured() {
+        return !!(this.consumerKey && this.consumerSecret && this.shortcode && this.passkey);
+    },
+};
+
+const mpesaTokenCache = { token: null, expiresAt: 0 };
+async function getMpesaToken() {
+    if (!MPESA.configured) throw new Error('mpesa-not-configured');
+    if (mpesaTokenCache.token && Date.now() < mpesaTokenCache.expiresAt) return mpesaTokenCache.token;
+    const basic = Buffer.from(`${MPESA.consumerKey}:${MPESA.consumerSecret}`).toString('base64');
+    const res = await fetch(`${MPESA.baseUrl}/oauth/v1/generate?grant_type=client_credentials`, {
+        headers: { Authorization: 'Basic ' + basic },
+    });
+    if (!res.ok) throw new Error('mpesa-oauth-failed:' + res.status);
+    const data = await res.json();
+    mpesaTokenCache.token = data.access_token;
+    mpesaTokenCache.expiresAt = Date.now() + ((Number(data.expires_in) || 3599) - 60) * 1000;
+    return mpesaTokenCache.token;
+}
+
+function normalizeKenyanPhone(raw) {
+    const digits = String(raw || '').replace(/[^0-9]/g, '');
+    if (/^254[17][0-9]{8}$/.test(digits)) return digits;
+    if (/^0[17][0-9]{8}$/.test(digits)) return '254' + digits.slice(1);
+    if (/^[17][0-9]{8}$/.test(digits)) return '254' + digits;
+    return null;
+}
 
 async function getOrCreateMetrics() {
     let metrics = await Metric.findOne({ id: "global_metrics" });
@@ -524,6 +584,198 @@ app.post('/api/transaction/toll', requireAdmin, async (req, res) => {
         res.json({ success: true, currentBalance: updatedMetrics });
     } catch (error) {
         res.status(500).json({ error: "Financial settlement layer connection timeout" });
+    }
+});
+
+// 4c. M-PESA DARAJA LIVE RAIL — STK push, callback, status query.
+// Fail-closed: the rail reports "not configured" until credentials exist,
+// and initiating pushes requires a registered agent key or the admin key.
+
+function mpesaDisabled(req, res) {
+    return res.status(503).json({
+        error: 'M-Pesa rail is not configured on this gateway. Set MPESA_CONSUMER_KEY, MPESA_CONSUMER_SECRET, MPESA_SHORTCODE and MPESA_PASSKEY.',
+    });
+}
+
+app.get('/api/mpesa/config', (req, res) => {
+    res.json({
+        enabled: MPESA.configured,
+        environment: MPESA.environment,
+        shortcode: MPESA.configured ? MPESA.shortcode : null,
+        callbackUrl: MPESA.callbackUrl,
+        accountRef: MPESA.accountRef,
+    });
+});
+
+app.post('/api/mpesa/stkpush', async (req, res) => {
+    if (!MPESA.configured) return mpesaDisabled(req, res);
+
+    // Only registered agents or the operator may initiate payment prompts —
+    // a public URL must not become an SMS-prompt spam cannon.
+    const token = bearerToken(req);
+    let agentId = null;
+    if (token && token === process.env.ADMIN_API_KEY) {
+        agentId = 'operator';
+    } else if (token) {
+        const agent = await withTimeout(Agent.findOne({ keyHash: sha256(token) }), 3000).catch(() => null);
+        if (!agent || agent.status !== 'active') {
+            return res.status(401).json({ error: 'Unauthorized: an active agent key or the admin key is required to initiate payments' });
+        }
+        agentId = agent.agentId;
+    } else {
+        return res.status(401).json({ error: 'Unauthorized: an active agent key or the admin key is required to initiate payments' });
+    }
+
+    if (!rateLimit('stkpush:' + clientIp(req), 5, 60 * 1000)) {
+        return res.status(429).json({ error: 'Too many payment requests. Slow down.' });
+    }
+
+    try {
+        const { amount, phoneNumber, accountRef } = req.body || {};
+        const numericAmount = Number(amount);
+        const phone = normalizeKenyanPhone(phoneNumber);
+        if (!Number.isFinite(numericAmount) || numericAmount < 1) {
+            return res.status(400).json({ error: 'Invalid amount: must be a whole number of at least 1 KES' });
+        }
+        if (!phone) {
+            return res.status(400).json({ error: 'Invalid phone number: expected a Kenyan number like 07XXXXXXXX or 2547XXXXXXXX' });
+        }
+
+        const accessToken = await getMpesaToken();
+        const timestamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+        const password = Buffer.from(`${MPESA.shortcode}${MPESA.passkey}${timestamp}`).toString('base64');
+        const ref = String(accountRef || MPESA.accountRef).replace(/[^A-Za-z0-9 -]/g, '').slice(0, 12);
+
+        const push = await fetch(`${MPESA.baseUrl}/mpesa/stkpush/v1/processrequest`, {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                BusinessShortCode: MPESA.shortcode,
+                Password: password,
+                Timestamp: timestamp,
+                TransactionType: 'CustomerPayBillOnline',
+                Amount: Math.round(numericAmount),
+                PartyA: phone,
+                PartyB: MPESA.shortcode,
+                PhoneNumber: phone,
+                CallBackURL: MPESA.callbackUrl,
+                AccountReference: ref,
+                TransactionDesc: 'Aegis toll settlement',
+            }),
+        });
+
+        const data = await push.json().catch(() => ({}));
+        if (!push.ok || !data.CheckoutRequestID) {
+            console.error('❌ M-Pesa STK push rejected:', push.status, JSON.stringify(data));
+            return res.status(502).json({ error: 'M-Pesa rejected the request', detail: data });
+        }
+
+        await withTimeout(Payment.create({
+            checkoutRequestId: data.CheckoutRequestID,
+            merchantRequestId: data.MerchantRequestID,
+            amount: Math.round(numericAmount),
+            phone,
+            accountRef: ref,
+            agentId,
+            status: 'PENDING',
+        }), 3000).catch(() => {});
+
+        res.status(200).json({
+            status: 'PUSH_SENT',
+            message: 'Payment prompt sent. Check the phone for the M-Pesa request.',
+            checkoutRequestId: data.CheckoutRequestID,
+            merchantRequestId: data.MerchantRequestID,
+            phone,
+            amount: Math.round(numericAmount),
+            environment: MPESA.environment,
+        });
+    } catch (error) {
+        console.error('❌ M-Pesa fault:', error.message);
+        if (error.message === 'mpesa-not-configured') return mpesaDisabled(req, res);
+        if (error.message.startsWith('mpesa-oauth-failed')) {
+            return res.status(502).json({ error: 'M-Pesa authentication failed: check the Daraja consumer key/secret' });
+        }
+        return res.status(503).json({ error: 'Payment rail fault: request not sent, nothing settled' });
+    }
+});
+
+// Daraja calls this with the payment outcome — it must always ACK with ResultCode 0.
+app.post('/api/mpesa/callback', express.raw({ type: '*/*' }), async (req, res) => {
+    let body = req.body;
+    try { if (Buffer.isBuffer(body)) body = JSON.parse(body.toString('utf8')); } catch { body = body; }
+    try {
+        const cb = body && body.Body && body.Body.stkCallback;
+        if (cb) {
+            const resultOk = Number(cb.ResultCode) === 0;
+            let receiptNumber = null;
+            const meta = {};
+            (cb.CallbackMetadata && cb.CallbackMetadata.Item || []).forEach(function (item) {
+                meta[item.Name] = item.Value;
+                if (item.Name === 'MpesaReceiptNumber') receiptNumber = item.Value;
+            });
+            await withTimeout(Payment.findOneAndUpdate(
+                { checkoutRequestId: cb.CheckoutRequestID },
+                {
+                    $set: {
+                        status: resultOk ? 'SUCCESS' : 'FAILED',
+                        resultDesc: cb.ResultDesc || '',
+                        receiptNumber: receiptNumber,
+                        rawCallback: body,
+                        updatedAt: new Date(),
+                    },
+                },
+                { new: true }
+            ), 3000);
+            console.log(resultOk ? '✅ M-Pesa payment SUCCESS: ' + receiptNumber : '❌ M-Pesa payment FAILED: ' + (cb.ResultDesc || ''));
+        } else {
+            console.warn('⚠️ M-Pesa callback with unexpected shape');
+        }
+    } catch (err) {
+        // Always ACK Daraja — retries come from their side; we never hang the rail.
+        console.error('❌ M-Pesa callback fault:', err.message);
+    }
+    res.json({ ResultCode: 0, ResultDesc: 'Accepted' });
+});
+
+app.get('/api/mpesa/status/:checkoutRequestId', async (req, res) => {
+    try {
+        const payment = await withTimeout(
+            Payment.findOne({ checkoutRequestId: req.params.checkoutRequestId }),
+            3000
+        );
+        if (!payment) return res.status(404).json({ error: 'Payment not found' });
+        res.json({
+            checkoutRequestId: payment.checkoutRequestId,
+            merchantRequestId: payment.merchantRequestId,
+            amount: payment.amount,
+            phone: payment.phone,
+            accountRef: payment.accountRef,
+            agentId: payment.agentId,
+            status: payment.status,
+            resultDesc: payment.resultDesc,
+            receiptNumber: payment.receiptNumber,
+            createdAt: payment.createdAt,
+            updatedAt: payment.updatedAt,
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Payment status unavailable' });
+    }
+});
+
+app.get('/api/mpesa/payments/recent', async (req, res) => {
+    try {
+        const payments = await withTimeout(Payment.find().sort({ createdAt: -1 }).limit(10), 3000);
+        res.json(payments.map(p => ({
+            checkoutRequestId: p.checkoutRequestId,
+            amount: p.amount,
+            phone: p.phone,
+            status: p.status,
+            resultDesc: p.resultDesc,
+            receiptNumber: p.receiptNumber,
+            createdAt: p.createdAt,
+        })));
+    } catch (error) {
+        res.status(500).json({ error: 'Payments list unavailable' });
     }
 });
 
