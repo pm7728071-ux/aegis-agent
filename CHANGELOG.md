@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.8.1 — The Aegis Guide (2026-10-24)
+- NEW: On-site assistant widget on every page — instant, deterministic answers about keys,
+  integration, security, pricing, M-Pesa rails and all v2.8.0 features.
+- NEW: POST /api/assistant — knowledge-engine endpoint (rate-limited, size-capped, fail-closed;
+  zero external LLM calls, zero cost — the free-tier promise kept).
+- Security suite: 53 checks (CASE 10 — assistant answers onboarding, falls back gracefully,
+  routes M-Pesa questions correctly).
+
+
 All notable changes to the Aegis Policy Gateway are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow semantic versioning.
 

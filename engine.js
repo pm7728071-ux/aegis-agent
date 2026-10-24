@@ -48,6 +48,7 @@ app.use((req, res, next) => {
 // Build-free frontend — ONLY these assets are public; the repo root is never served.
 const publicPath = __dirname;
 app.get('/landing.js', (req, res) => res.sendFile(path.join(publicPath, 'landing.js')));
+app.get('/assistant.js', (req, res) => res.sendFile(path.join(publicPath, 'assistant.js')));
 app.get('/console.js', (req, res) => res.sendFile(path.join(publicPath, 'console.js')));
 app.get('/.well-known/security.txt', (req, res) => {
     res.type('text/plain').send(
@@ -925,6 +926,103 @@ async function auditTransactionHandler(req, res) {
 
 app.post('/', auditTransactionHandler);
 app.post('/api/audit', auditTransactionHandler);
+
+// ==== v2.8.1: Aegis Guide — deterministic on-site assistant (no external LLM, free forever) ====
+const ASSISTANT_KB = [
+    { id: 'greeting', p: ['hi','hello','hey','habari','mambo','niaje','good morning','good afternoon','good evening','jambo'],
+      reply: 'Hi! I can point you to anything on Aegis: getting a key, integration, security, pricing, or how the gate works.',
+      chips: ['Get an API key','How it works','Is it secure?','Pricing'] },
+    { id: 'what', p: ['what is aegis','what does aegis','about aegis','overview','why aegis','what is this','what do you do','explain aegis'],
+      reply: 'Aegis is a policy gate for autonomous AI agents. Before your agent moves money it calls Aegis: over-limit transactions are BLOCKED, every decision is recorded to an immutable audit trail, and if the gate is ever unreachable it fails closed — money does not move.',
+      chips: ['How it works','Get an API key','Is it secure?'] },
+    { id: 'start', p: ['get started','how do i start','integrate','api key','register','signup','sign up','key','onboard','first step','start'],
+      reply: 'Three steps, no email needed:\n1. Register your agent: POST /api/agents/register with a name — you get an agentId + API key (shown once, stored only as a hash).\n2. Before every payment, call POST /api/audit with your Bearer key and the amount.\n3. Read the verdict: APPROVED (with a signed single-use warrant) or BLOCKED (with the reason).\nThe full API reference is on the Docs page, and the Playground lets you test with zero signup.',
+      chips: ['Show me code','Python SDK','Playground','Docs'] },
+    { id: 'code', p: ['code','example','snippet','curl','show me code','how do i call','sample','quickstart'],
+      reply: 'Register once:\ncurl -X POST https://aegis-agent-4u79.onrender.com/api/agents/register -H "Content-Type: application/json" -d \'{"name":"My Agent"}\'\n\nThen gate every transaction:\ncurl -X POST https://aegis-agent-4u79.onrender.com/api/audit -H "Authorization: Bearer agk_YOUR_KEY" -H "Content-Type: application/json" -d \'{"amount":750,"currency":"KES"}\'\n\nAdd an X-Idempotency-Key header so retries never double-charge.',
+      chips: ['Idempotency keys','Python SDK','Get an API key'] },
+    { id: 'sdk', p: ['python','sdk','client library','javascript sdk','pip','install'],
+      reply: 'There is an official Python SDK (aegis_sdk.py in the repo) and a JavaScript SDK client. Both are fail-closed by design: network errors raise, they never silently approve. The Python quickstart:\n\nfrom aegis_sdk import AegisClient\nclient = AegisClient("https://aegis-agent-4u79.onrender.com", api_key="agk_...")\nverdict = client.audit(750, currency="KES")',
+      chips: ['Show me code','Get an API key','Docs'] },
+    { id: 'pricing', p: ['price','pricing','cost','free','how much','charges','toll','fees','payment required'],
+      reply: 'Free. Registration, the sandbox, and the playground cost nothing. Live agent verdicts carry a tiny per-transaction toll (a fraction of a shilling) that funds the network — visible on your agent\'s analytics. No card, no subscription, no email required to start.',
+      chips: ['Get an API key','What is the toll for','Analytics'] },
+    { id: 'mpesa', p: ['mpesa','daraja','settle','settlement','payout','send money','payment','transaction','pay'],
+      reply: 'Aegis is built on M-Pesa\'s Daraja API. When a transaction is APPROVED, Aegis issues a signed single-use payment warrant — your agent redeems it via POST /api/payments/settle with the payer\'s phone number. Replays of the same warrant are refused, and reversals for settled transactions get their own signed reversal warrant. Sandbox rails are live now; production Daraja is in the Safaricom Go-Live process.',
+      chips: ['Reversals','Warrants','Playground'] },
+    { id: 'security', p: ['secure','security','safe','trust','encryption','hashed','is my key safe','audit trail','immutable','tamper'],
+      reply: 'Security is a test suite, not a claim: 50 automated checks run against production. Your API key is stored only as a SHA-256 hash and can be rotated on demand. Every verdict is persisted to an immutable trail before the response is sent, with a tamper-evident receipt page you can share. A public transparency page shows every attack the gate has stopped.',
+      chips: ['Transparency page','Rotation','Fail-closed'] },
+    { id: 'failclosed', p: ['fail-closed','fail closed','outage','what if the gate is down','offline','down'],
+      reply: 'Fail-closed is the core promise: if the database, the policy engine, or the whole gate is unreachable, every transaction blocks. The test suite literally kills the database mid-run to prove zero approvals leak during a total outage. Your agent\'s code should treat any error as BLOCKED — the SDKs do this by default.',
+      chips: ['Is it secure?','Docs','Help line'] },
+    { id: 'limits', p: ['limit','policy','over-limit','ceiling','spend','block','blocked','quota','cap'],
+      reply: 'Two layers of limits: each agent gets its own spend policy (set at registration or updated via /api/agents/me/policy), capped by a network-wide ceiling. Anything over the agent\'s limit is BLOCKED with the exact reason in the response. Agents can also be quarantined by operator order if they go rogue.',
+      chips: ['Approvals','Analytics','Get an API key'] },
+    { id: 'approval', p: ['approval','approve','human in the loop','human-in-the-loop','requireapproval','pending','operator','confirm before paying'],
+      reply: 'Human-in-the-loop is built in: send requireApproval: true with your audit and the transaction is held as PENDING_APPROVAL — no warrant, no funds move. An operator then approves (a signed warrant is issued) or denies (it becomes BLOCKED) from the operator console.',
+      chips: ['Warrants','Reversals','Docs'] },
+    { id: 'reversal', p: ['reversal','reverse','refund','dispute','chargeback','undo','cancel transaction'],
+      reply: 'Settled transactions can be reversed: POST /api/payments/reversal with the warrantId issues a signed single-use reversal warrant, marks the original REVERSED, and records a REVERSED verdict in the trail. Double-reversals are refused (409). This mirrors M-Pesa\'s reversal workflow for disputes.',
+      chips: ['M-Pesa rails','Warrants','Docs'] },
+    { id: 'idempotency', p: ['idempoten','retry','retries','duplicate','x-idempotency-key','double charge','double-charge','replay'],
+      reply: 'Send an X-Idempotency-Key header on /api/audit: identical logical requests replay the original verdict (same auditId, idempotentReplay: true) for 24 hours instead of creating a duplicate transaction. Network retries can never double-charge.',
+      chips: ['Show me code','Warrants','Docs'] },
+    { id: 'kya', p: ['verify agent','registry','know your agent','reputation','is this agent registered','check an agent'],
+      reply: 'The Know-Your-Agent registry is public: GET /api/agents/verify/{agentId} tells anyone whether an agent is registered, its status (active/quarantined), and its reputation (approved/blocked counts) — with zero key material exposed. It\'s the open, free answer to what the big card networks are building.',
+      chips: ['Is it secure?','Transparency page','Docs'] },
+    { id: 'analytics', p: ['analytics','dashboard','stats','usage','insights','my activity','how many requests','report'],
+      reply: 'GET /api/agents/me/analytics with your key returns your agent\'s totals, the last 24 hours of verdicts, total toll, and your top denial reasons — so you can tune policies with data.',
+      chips: ['Limits','Docs','Get an API key'] },
+    { id: 'webhook', p: ['webhook','notify','notification','callback','events','subscribe'],
+      reply: 'Register a webhook URL and Aegis notifies you on verdicts and quarantines, signed so you can verify authenticity. Configure it when you register or update it later with your key.',
+      chips: ['Docs','Help line'] },
+    { id: 'receipt', p: ['receipt','verify a transaction','proof','tamper-evident','receipt page','share evidence'],
+      reply: 'Every APPROVED verdict returns an auditId and a receiptUrl — a tamper-evident page anyone can open to confirm the decision. That is your proof layer for disputes and compliance.',
+      chips: ['Reversals','Transparency page','Docs'] },
+    { id: 'transparency', p: ['transparency','attacks','honeypot','radar','stopped','malicious','scanners','security page'],
+      reply: 'The /security page is the public wall: every attack the honeypot and radar have stopped is listed live. Scanners that probe /.env or /.git get auto-jailed — they quarantine themselves.',
+      chips: ['Is it secure?','Docs'] },
+    { id: 'help', p: ['crash','error','bug','broken','not working','failing','help line','report a problem','something is wrong','stuck'],
+      reply: 'Report it on the Help page (/help) — every report lands in the operator console, and the team responds within about 48 hours. If it\'s a production money-movement issue, say so in the report and it gets priority.',
+      chips: ['Docs','Feedback','Playground'] },
+    { id: 'feedback', p: ['feature request','suggestion','feedback','idea','propose','wish','request a feature'],
+      reply: 'Post it on the Feedback board (/feedback) — requests are reviewed weekly and the top ones ship first. Feature requests from working integrations jump the queue.',
+      chips: ['Roadmap','Help'] },
+    { id: 'roadmap', p: ['roadmap','future','what next','plans','coming soon','next features'],
+      reply: 'The public 60-day roadmap (docs/ROADMAP.md in the repo) runs in four phases: the evaluation engine (done — 50 automated checks), the execution loop, improvement against the recorded baseline, and an evidence release with independent developer testing.',
+      chips: ['Docs','Feedback'] },
+    { id: 'playground', p: ['playground','try it','test','demo','sandbox','experiment','without a key'],
+      reply: 'The Playground on the homepage runs in sandbox mode — no signup, no key. You can issue verdicts and watch the fail-closed logic work in about 30 seconds.',
+      chips: ['Get an API key','Show me code','How it works'] },
+    { id: 'contact', p: ['contact','email','who built','team','reach you','support email','human'],
+      reply: 'Aegis is built in Nairobi and run in the open — the repo, the roadmap, and the transparency page are all public. For anything human, use the Help line (/help) or the Feedback board; reports route straight to the operator console.',
+      chips: ['Help','Feedback','Roadmap'] },
+    { id: 'thanks', p: ['thanks','thank you','asante','appreciate','nice','cool'],
+      reply: 'Asante! If you build something on Aegis, the Feedback board is the place to show it off.',
+      chips: ['Feedback','Roadmap'] },
+];
+const ASSISTANT_FALLBACK = 'I am not sure I follow — I answer questions about Aegis: keys, integration, M-Pesa rails, security, approvals, reversals, pricing. Try one of these, or use the Help line for anything else.';
+const ASSISTANT_CHIPS_DEFAULT = ['Get an API key','How it works','Is it secure?','Pricing'];
+
+app.post('/api/assistant', async (req, res) => {
+    try {
+        if (!rateLimit('asst:' + clientIp(req), 30, 60000)) return res.status(429).json({ reply: 'Slow down a moment, then ask again.', chips: [] });
+        const msg = String((req.body && req.body.message) || '').slice(0, 500).toLowerCase().trim();
+        if (!msg) return res.status(400).json({ reply: 'Ask me anything about Aegis.', chips: ASSISTANT_CHIPS_DEFAULT });
+        let best = null, bestScore = 0;
+        for (const entry of ASSISTANT_KB) {
+            let score = 0;
+            for (const p of entry.p) if (msg.includes(p)) score += p.length;
+            if (score > bestScore) { bestScore = score; best = entry; }
+        }
+        if (!best || bestScore < 3) return res.json({ intent: 'fallback', reply: ASSISTANT_FALLBACK, chips: ASSISTANT_CHIPS_DEFAULT });
+        return res.json({ intent: best.id, reply: best.reply, chips: best.chips });
+    } catch (err) {
+        return res.status(200).json({ intent: 'error', reply: ASSISTANT_FALLBACK, chips: ASSISTANT_CHIPS_DEFAULT });
+    }
+});
+
 
 // ==== MARKET-FIT (v2.8): Know-Your-Agent registry, operator approvals, reversals, analytics ====
 

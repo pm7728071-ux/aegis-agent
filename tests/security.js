@@ -373,6 +373,17 @@ async function case9(adminKey) {
     `verdicts=${an.data.totals ? an.data.totals.verdicts : 0} toll=${an.data.totals ? an.data.totals.tollKES : 0}`);
 }
 
+
+async function case10() {
+  console.log('\n--- CASE 10: on-site assistant (deterministic guide) ---');
+  const a1 = await post('/api/assistant', { message: 'how do I get an API key?' });
+  check('CASE 10', 'assistant answers onboarding questions', a1.ok && /register|api\/agents\/register/i.test(a1.data.reply || ''), `intent=${a1.data && a1.data.intent}`);
+  const a2 = await post('/api/assistant', { message: 'zzqxjv blorp 998' });
+  check('CASE 10', 'gibberish gets a helpful fallback', a2.ok && (a2.data.intent === 'fallback' || a2.data.intent === 'error'), `intent=${a2.data && a2.data.intent}`);
+  const a3 = await post('/api/assistant', { message: 'can my agent pay through M-Pesa?' });
+  check('CASE 10', 'M-Pesa question routes to the settlement answer', a3.ok && /mpesa|daraja|warrant/i.test(a3.data.reply || ''), `intent=${a3.data && a3.data.intent}`);
+}
+
 (async () => {
   console.log(`\n=== AEGIS SECURITY TEST SUITE — ${BASE} ===`);
   if (ADMIN_KEY) {
@@ -391,6 +402,7 @@ async function case9(adminKey) {
   // since jailing its own IP would block the trail read without an admin key).
   await case7(beforeIds);
   await case8();
+  await case10();
   await case9(ADMIN_KEY);
   await case6();
 
