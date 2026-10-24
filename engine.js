@@ -75,6 +75,10 @@ app.get('/api/security/report', async (req, res) => {
             posture: [
                 { name: 'Fail-closed core', description: 'Any fault — database, policy, identity — blocks the transaction. Nothing ever authorizes silently.' },
                 { name: 'Hardened API keys', description: 'Agent keys are stored only as SHA-256 hashes, shown once at registration, rotatable on demand, per-agent policy-bound, and rate-limited at 60 req/min.' },
+                { name: 'Know-Your-Agent registry', description: 'Public agent verification endpoint: anyone can confirm an agent is registered, active, and view its reputation — no key material exposed.' },
+                { name: 'Human-in-the-loop approvals', description: 'Agents can request operator approval before consequential payments; nothing moves until a human signs off.' },
+                { name: 'Idempotency keys', description: 'Replayed operations return the original verdict — duplicate requests can never create duplicate transactions.' },
+                { name: 'Reversible settlements', description: 'Settled transactions can be disputed and reversed via signed single-use reversal warrants.' },
                 { name: 'Honeypot perimeter', description: 'Scanner bait paths (/.env, /.git, /wp-admin and more) answer 403 and jail the probing IP for one hour.' },
                 { name: 'Brute-force jail', description: 'More than 10 failed key attempts from one IP within 10 minutes triggers a 30-minute block.' },
                 { name: 'Traffic ceiling', description: '240 requests/minute per source IP blunts scrapers and lightweight denial-of-service attempts.' },
@@ -227,7 +231,7 @@ const AuditSchema = new mongoose.Schema({
     agentId: { type: String, required: true },
     amount: { type: Number, required: true },
     currency: { type: String, default: 'KES' },
-    decision: { type: String, enum: ['APPROVED', 'BLOCKED'], required: true },
+    decision: { type: String, enum: ['APPROVED', 'BLOCKED', 'PENDING_APPROVAL', 'REVERSED'], required: true },
     reason: { type: String, default: '' },
     tollKES: { type: Number, default: 0 },
     receiptHash: { type: String, default: '' },
@@ -302,7 +306,10 @@ const WarrantSchema = new mongoose.Schema({
     agentId: { type: String, required: true },
     amount: { type: Number, required: true },
     currency: { type: String, required: true },
-    status: { type: String, enum: ['ISSUED', 'SETTLED', 'FAILED'], default: 'ISSUED' },
+    status: { type: String, enum: ['ISSUED', 'SETTLED', 'FAILED', 'REVERSED'], default: 'ISSUED' },
+    type: { type: String, enum: ['payment', 'reversal'], default: 'payment' },
+    reversalOf: { type: String, default: '' },
+    reversedAt: { type: Date },
     signature: { type: String, required: true },
     issuedAt: { type: Date, default: Date.now },
     expiresAt: { type: Date, required: true },
@@ -410,6 +417,8 @@ const withTimeout = (promise, ms = 3000) =>
 
 // 3d. RATE LIMITING — in-memory fixed-window limiter (one instance per pod).
 const rateBuckets = new Map();
+// Idempotency replay cache: sha256(idempotencyKey|identity) -> { ts, status, body }. TTL 24h.
+const idempotencyCache = new Map();
 function rateLimit(key, limit, windowMs) {
     const now = Date.now();
     let bucket = rateBuckets.get(key);
@@ -707,6 +716,24 @@ app.post('/api/agents/rotate', async (req, res) => {
 });
 
 async function auditTransactionHandler(req, res) {
+    // Idempotency: replaying the same logical operation must NEVER create a duplicate transaction.
+    const _idemKey = (req.headers['x-idempotency-key'] || '').trim().slice(0, 120);
+    if (_idemKey) {
+        const _idemCacheKey = sha256(_idemKey + '|' + (bearerToken(req) || 'sandbox'));
+        const _cached = idempotencyCache.get(_idemCacheKey);
+        if (_cached && Date.now() - _cached.ts < 24 * 3600 * 1000) {
+            return res.status(_cached.status).json({ ..._cached.body, idempotentReplay: true, idempotencyKey: _idemKey });
+        }
+        const _origJson = res.json.bind(res);
+        res.json = (body) => {
+            if (res.statusCode >= 200 && res.statusCode < 500) {
+                idempotencyCache.set(_idemCacheKey, { ts: Date.now(), status: res.statusCode, body });
+                if (idempotencyCache.size > 2000) idempotencyCache.delete(idempotencyCache.keys().next().value);
+            }
+            return _origJson(body);
+        };
+    }
+
     const { agentId, amount, currency, mpesaRecipient } = req.body || {};
     const normalizedCurrency = (currency || 'KES').toString().toUpperCase();
     const numericAmount = Number(amount);
@@ -815,6 +842,18 @@ async function auditTransactionHandler(req, res) {
             );
         }
 
+        // Human-in-the-loop: the market demands explicit operator approval before consequential agent payments.
+        if (req.body && req.body.requireApproval === true) {
+            const pendingAudit = await withTimeout(Audit.create({
+                agentId: normalizedAgent, amount: numericAmount, currency: normalizedCurrency,
+                decision: 'PENDING_APPROVAL', reason: 'Awaiting operator approval (human-in-the-loop)', tollKES: 0, receiptHash: '',
+            }), 3000);
+            return res.status(202).json({
+                status: 'PENDING_APPROVAL', auditId: pendingAudit.id, agentId: normalizedAgent, mode,
+                reason: 'Held for operator approval. No warrant issued; no funds move until an operator approves.',
+            });
+        }
+
         const toll = policy.auditTollKES;
         const yieldUSD = toll / policy.fxRateKESPerUSD;
         const audit = await Audit.create({
@@ -886,6 +925,113 @@ async function auditTransactionHandler(req, res) {
 
 app.post('/', auditTransactionHandler);
 app.post('/api/audit', auditTransactionHandler);
+
+// ==== MARKET-FIT (v2.8): Know-Your-Agent registry, operator approvals, reversals, analytics ====
+
+app.get('/api/agents/verify/:agentId', async (req, res) => {
+    try {
+        if (rateLimit('kya:' + clientIp(req), 30, 60000)) {
+            const agent = await withTimeout(
+                Agent.findOne({ agentId: String(req.params.agentId || '').slice(0, 64) }).select('-keyHash -keyPrefix -webhookUrl'),
+                3000);
+            if (!agent) return res.status(404).json({ registered: false, agentId: String(req.params.agentId || '').slice(0, 64), status: 'UNKNOWN' });
+            return res.json({
+                registered: true, agentId: agent.agentId, name: agent.name, status: agent.status,
+                environment: agent.environment || 'sandbox',
+                registeredAt: agent.createdAt ? new Date(agent.createdAt).toISOString().slice(0, 7) : null,
+                reputation: { requestCount: agent.requestCount || 0, approvedCount: agent.approvedCount || 0, blockedCount: agent.blockedCount || 0 },
+            });
+        }
+        return res.status(429).json({ error: 'Rate limit exceeded. Slow down and retry.' });
+    } catch (err) {
+        return res.status(503).json({ error: 'Agent registry unreachable' });
+    }
+});
+
+app.post('/api/transactions/approve', requireAdmin, async (req, res) => {
+    try {
+        const { auditId, reason } = req.body || {};
+        if (!auditId) return res.status(400).json({ error: 'auditId required' });
+        const pending = await withTimeout(Audit.findById(String(auditId).slice(0, 64)), 3000);
+        if (!pending) return res.status(404).json({ error: 'Audit not found' });
+        if (pending.decision !== 'PENDING_APPROVAL') return res.status(409).json({ error: 'Audit is not pending approval', decision: pending.decision });
+        const w = {
+            warrantId: 'aegis_wt_' + crypto.randomBytes(12).toString('hex'),
+            auditId: pending.id, agentId: pending.agentId, amount: pending.amount,
+            currency: pending.currency || 'KES', expiresAt: Date.now() + WARRANT_TTL_MS,
+        };
+        w.signature = warrantSign(w);
+        await withTimeout(Warrant.create({ ...w }), 3000);
+        await withTimeout(Audit.findByIdAndUpdate(pending.id, { decision: 'APPROVED', reason: 'Operator approved: ' + String(reason || 'manual review').slice(0, 120) }), 3000);
+        console.log(`✅ [APPROVAL] Operator approved ${pending.id} for ${pending.agentId}; warrant ${w.warrantId} issued`);
+        return res.json({ status: 'APPROVED', auditId: pending.id, warrant: w, note: 'Signed single-use warrant issued; settlement can proceed.' });
+    } catch (err) { return res.status(503).json({ error: 'Approval service unreachable' }); }
+});
+
+app.post('/api/transactions/deny', requireAdmin, async (req, res) => {
+    try {
+        const { auditId, reason } = req.body || {};
+        if (!auditId) return res.status(400).json({ error: 'auditId required' });
+        const pending = await withTimeout(Audit.findById(String(auditId).slice(0, 64)), 3000);
+        if (!pending) return res.status(404).json({ error: 'Audit not found' });
+        if (pending.decision !== 'PENDING_APPROVAL') return res.status(409).json({ error: 'Audit is not pending approval', decision: pending.decision });
+        await withTimeout(Audit.findByIdAndUpdate(pending.id, { decision: 'BLOCKED', reason: 'Operator denied: ' + String(reason || 'not authorized').slice(0, 120) }), 3000);
+        console.log(`⛔ [APPROVAL] Operator denied ${pending.id} for ${pending.agentId}`);
+        return res.json({ status: 'BLOCKED', auditId: pending.id });
+    } catch (err) { return res.status(503).json({ error: 'Denial service unreachable' }); }
+});
+
+app.post('/api/payments/reversal', async (req, res) => {
+    try {
+        const { mode, agent } = await resolveAgent(req);
+        if (mode === 'throttled') return res.status(429).json({ status: 'BLOCKED', reason: 'Agent rate limit exceeded (60 requests/min) — request denied' });
+        if (mode !== 'live' || !agent) { recordAuthFailure(clientIp(req)); return res.status(401).json({ status: 'BLOCKED', error: 'A valid registered API key is required to reverse a settlement' }); }
+        if (agent.status === 'quarantined') return res.status(403).json({ status: 'BLOCKED', reason: 'Agent is quarantined by operator order and may not transact' });
+        const { warrantId, reason } = req.body || {};
+        if (!warrantId) return res.status(400).json({ error: 'warrantId required' });
+        const original = await withTimeout(Warrant.findOne({ warrantId: String(warrantId).slice(0, 80) }), 3000);
+        if (!original) return res.status(404).json({ status: 'BLOCKED', error: 'Warrant not found in the ledger' });
+        if (original.agentId !== agent.agentId) return res.status(403).json({ status: 'BLOCKED', error: 'This warrant belongs to a different agent' });
+        if (original.status !== 'SETTLED') return res.status(409).json({ status: 'BLOCKED', error: `Warrant is ${original.status}, not SETTLED. Only settled transactions can be reversed.` });
+        const w = {
+            warrantId: 'aegis_wt_' + crypto.randomBytes(12).toString('hex'),
+            auditId: original.auditId, agentId: agent.agentId, amount: original.amount,
+            currency: original.currency, expiresAt: Date.now() + WARRANT_TTL_MS,
+        };
+        w.signature = warrantSign(w);
+        await withTimeout(Warrant.create({ ...w, type: 'reversal', reversalOf: original.warrantId }), 3000);
+        await withTimeout(Warrant.updateOne({ warrantId: original.warrantId }, { $set: { status: 'REVERSED', reversedAt: new Date() } }), 3000);
+        const reversalAudit = await withTimeout(Audit.create({
+            agentId: agent.agentId, amount: original.amount, currency: original.currency,
+            decision: 'REVERSED', reason: 'Settlement reversed: ' + String(reason || 'dispute').slice(0, 120), tollKES: 0, receiptHash: '',
+        }), 3000);
+        console.log(`↩️  [REVERSAL] ${original.warrantId} reversed by ${agent.agentId}; reversal warrant ${w.warrantId}`);
+        return res.json({ status: 'REVERSED', reversal: w, originalWarrant: original.warrantId, auditId: reversalAudit.id, note: 'Signed single-use reversal warrant issued; original settlement marked REVERSED.' });
+    } catch (err) { return res.status(503).json({ error: 'Reversal service unreachable' }); }
+});
+
+app.get('/api/agents/me/analytics', async (req, res) => {
+    try {
+        const { mode, agent } = await resolveAgent(req);
+        if (mode === 'throttled') return res.status(429).json({ status: 'BLOCKED', reason: 'Agent rate limit exceeded (60 requests/min) — request denied' });
+        if (mode !== 'live' || !agent) { recordAuthFailure(clientIp(req)); return res.status(401).json({ error: 'Unauthorized: a valid registered API key is required' }); }
+        const rows = await withTimeout(Audit.find({ agentId: agent.agentId }).sort({ timestamp: -1 }).limit(500).select('amount currency decision reason tollKES timestamp'), 5000);
+        const now = Date.now(); const day = 24 * 3600 * 1000;
+        const totals = { verdicts: rows.length, approved: 0, blocked: 0, pending: 0, reversed: 0, tollKES: 0 };
+        const last24h = { verdicts: 0, approved: 0, blocked: 0 };
+        const reasonCounts = {};
+        for (const r of rows) {
+            const fresh = now - new Date(r.timestamp).getTime() < day;
+            if (fresh) last24h.verdicts++;
+            if (r.decision === 'APPROVED') { totals.approved++; totals.tollKES += r.tollKES || 0; if (fresh) last24h.approved++; }
+            else if (r.decision === 'BLOCKED') { totals.blocked++; if (fresh) last24h.blocked++; const k = (r.reason || '').slice(0, 80); reasonCounts[k] = (reasonCounts[k] || 0) + 1; }
+            else if (r.decision === 'PENDING_APPROVAL') totals.pending++;
+            else if (r.decision === 'REVERSED') totals.reversed++;
+        }
+        const topDenialReasons = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([reason, count]) => ({ reason, count }));
+        return res.json({ agentId: agent.agentId, totals, last24h, topDenialReasons, window: 'last 500 verdicts' });
+    } catch (err) { return res.status(503).json({ error: 'Analytics service unreachable' }); }
+});
 
 // Operator-only: quarantine an agent / log an intercept. Admin key required.
 // If the target is a registered agent, its status flips to quarantined.

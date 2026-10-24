@@ -17,7 +17,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow 
 ### Changed
 - Security suite extended with CASE 8 (key security, 12 checks) — now 37/37.
 
-## [Unreleased]
+## [2.8.0] — 2026-10-24
+
+### Added — market-fit release (docs/MARKET.md)
+- Idempotency keys: `x-idempotency-key` on the gate — replays return the original verdict (`idempotentReplay: true`), never a duplicate transaction (24h cache).
+- Know-Your-Agent public registry: `GET /api/agents/verify/:agentId` — registration, status, environment, reputation; zero key material.
+- Human-in-the-loop approvals: `requireApproval: true` holds a transaction as PENDING_APPROVAL (202); operator `POST /api/transactions/approve` / `deny` (double-approval refused, approval issues a signed warrant).
+- Reversible settlements: `POST /api/payments/reversal` — signed single-use reversal warrant, only SETTLED originals, replay refused (409), fully audited (decision REVERSED).
+- Agent analytics: `GET /api/agents/me/analytics` — totals, last-24h, top denial reasons.
+- Official Python SDK (`aegis_sdk.py`) with offline unit tests (`tests/test_aegis_sdk.py`).
+- Market research & product-market-fit document (docs/MARKET.md).
+
+### Changed
+- Security suite extended with CASE 9 (market-fit features) — 13 new checks.
 
 ### Added
 - `tests/security.js`: dedicated automated security suite covering the 7-case security spec — policy ALLOW/DENY, key auth denial, fail-closed under total DB outage (self-spawned chaos instance with unreachable DB), single-use warrant settlement (duplicate transactions impossible), rate-limit/IP-jail triggering with operator unblock, and audit-trail accuracy verification for every decision. 25/25 passing against production.

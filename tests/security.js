@@ -38,7 +38,7 @@ function check(kase, name, cond, detail) {
   console.log(`${cond ? 'PASS' : 'FAIL'}  [${kase}] ${name}${detail ? ' — ' + detail : ''}`);
 }
 
-async function req(method, path, { body, key, timeoutMs = 20000 } = {}) {
+async function req(method, path, { body, key, timeoutMs = 20000, idem } = {}) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -48,6 +48,7 @@ async function req(method, path, { body, key, timeoutMs = 20000 } = {}) {
       headers: {
         'Content-Type': 'application/json',
         ...(key ? { Authorization: 'Bearer ' + key } : {}),
+        ...(idem ? { 'x-idempotency-key': idem } : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
@@ -305,6 +306,73 @@ async function case7(beforeIds) {
     approvals + blocks === fresh.length, `approved=${approvals} blocked=${blocks}`);
 }
 
+
+// CASE 9 — market-fit features: idempotency, KYA registry, approvals, reversals, analytics
+async function case9(adminKey) {
+  console.log('\n--- CASE 9: market-fit features (idempotency, KYA registry, approvals, reversals, analytics) ---');
+  const reg = await post('/api/agents/register', { name: 'SecSuite_Markets', policyLimitKES: 5000 });
+  if (reg.status !== 201 || !reg.data.apiKey) { console.log(`SKIP [CASE 9] registration unavailable (status=${reg.status})`); return; }
+  const KEY = reg.data.apiKey; const AID = reg.data.agentId;
+
+  // 9a. Idempotency: same key + payload = same transaction
+  const idem = 'sec-' + Math.random().toString(36).slice(2, 12);
+  const r1 = await post('/api/audit', { amount: 25, currency: 'KES' }, { key: KEY, idem });
+  const r2 = await post('/api/audit', { amount: 25, currency: 'KES' }, { key: KEY, idem });
+  check('CASE 9', 'idempotency key returns the SAME transaction on replay',
+    r1.data.auditId && r1.data.auditId === r2.data.auditId && r2.data.idempotentReplay === true,
+    `first=${r1.data.auditId} replay=${r2.data.auditId} replayedFlag=${r2.data.idempotentReplay}`);
+  const r3 = await post('/api/audit', { amount: 25, currency: 'KES' }, { key: KEY, idem: idem + '-x' });
+  check('CASE 9', 'a different idempotency key creates a NEW transaction',
+    r3.data.auditId && r3.data.auditId !== r1.data.auditId, `new=${r3.data.auditId}`);
+
+  // 9b. Know-Your-Agent registry
+  const kya = await get(`/api/agents/verify/${AID}`);
+  check('CASE 9', 'Know-Your-Agent registry verifies a registered agent',
+    kya.ok && kya.data.registered === true && kya.data.status === 'active' && kya.data.reputation,
+    `registered=${kya.data.registered} status=${kya.data.status}`);
+  check('CASE 9', 'registry response exposes no key material',
+    !JSON.stringify(kya.data).includes('agk_') && !kya.data.keyHash && !kya.data.keyPrefix, 'no key fields present');
+  const kya404 = await get('/api/agents/verify/aegis_ag_doesnotexist99');
+  check('CASE 9', 'unknown agents are reported as unregistered',
+    kya404.status === 404 && kya404.data.registered === false, `status=${kya404.status}`);
+
+  // 9c. Human-in-the-loop approvals
+  const pend = await post('/api/audit', { amount: 400, currency: 'KES', requireApproval: true }, { key: KEY });
+  check('CASE 9', 'requireApproval holds the transaction for a human',
+    pend.status === 202 && pend.data.status === 'PENDING_APPROVAL' && !pend.data.warrant,
+    `status=${pend.status} verdict=${pend.data.status}`);
+  if (adminKey) {
+    const appr = await post('/api/transactions/approve', { auditId: pend.data.auditId, reason: 'security suite test' }, { key: adminKey });
+    check('CASE 9', 'operator approval issues a signed warrant',
+      appr.ok && appr.data.status === 'APPROVED' && appr.data.warrant && appr.data.warrant.signature,
+      `status=${appr.data.status} warrant=${appr.data.warrant ? appr.data.warrant.warrantId : 'none'}`);
+    const appr2 = await post('/api/transactions/approve', { auditId: pend.data.auditId }, { key: adminKey });
+    check('CASE 9', 'double-approval is refused', appr2.status === 409, `status=${appr2.status}`);
+    const pend2 = await post('/api/audit', { amount: 500, currency: 'KES', requireApproval: true }, { key: KEY });
+    const deny = await post('/api/transactions/deny', { auditId: pend2.data.auditId, reason: 'test denial' }, { key: adminKey });
+    check('CASE 9', 'operator denial blocks the held transaction',
+      deny.ok && deny.data.status === 'BLOCKED', `status=${deny.data.status}`);
+  } else { console.log('SKIP [CASE 9] approval checks (no admin key provided)'); }
+
+  // 9d. Reversible settlements
+  const live = await post('/api/audit', { amount: 30, currency: 'KES' }, { key: KEY });
+  const warrant = live.data && live.data.warrant;
+  const st = await post('/api/payments/settle', { warrant, payerPhone: '254700000000' }, { key: KEY });
+  check('CASE 9', 'setup: live warrant settles', st.ok, `status=${st.status}`);
+  const rv = await post('/api/payments/reversal', { warrantId: warrant.warrantId, reason: 'security suite test reversal' }, { key: KEY });
+  check('CASE 9', 'settled transaction can be reversed with a signed reversal warrant',
+    rv.ok && rv.data.status === 'REVERSED' && rv.data.reversal && rv.data.reversal.signature,
+    `status=${rv.data.status} reversal=${rv.data.reversal ? rv.data.reversal.warrantId : 'none'}`);
+  const rv2 = await post('/api/payments/reversal', { warrantId: warrant.warrantId, reason: 'replay attempt' }, { key: KEY });
+  check('CASE 9', 'double-reversal is refused', rv2.status === 409, `status=${rv2.status}`);
+
+  // 9e. Agent analytics
+  const an = await get('/api/agents/me/analytics', { key: KEY });
+  check('CASE 9', 'agent analytics summarize verdicts',
+    an.ok && an.data.totals && an.data.totals.verdicts >= 4 && Array.isArray(an.data.topDenialReasons),
+    `verdicts=${an.data.totals ? an.data.totals.verdicts : 0} toll=${an.data.totals ? an.data.totals.tollKES : 0}`);
+}
+
 (async () => {
   console.log(`\n=== AEGIS SECURITY TEST SUITE — ${BASE} ===`);
   if (ADMIN_KEY) {
@@ -323,6 +391,7 @@ async function case7(beforeIds) {
   // since jailing its own IP would block the trail read without an admin key).
   await case7(beforeIds);
   await case8();
+  await case9(ADMIN_KEY);
   await case6();
 
   console.log(`\n=== RESULT: ${results.length - failures}/${results.length} security checks passed ===`);
