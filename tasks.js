@@ -2,7 +2,7 @@
 // An agent submits a goal and steps. Aegis plans, executes each step through the
 // policy gate, verifies every warrant signature, fails closed on errors, and
 // halts for human approval when a step exceeds policy.
-module.exports = function createTaskLoop(d) {
+export default function createTaskLoop(d) {
     const { app, crypto, Task, Agent, Audit, Warrant, resolveAgent, withTimeout, requireAdmin, warrantSign, WARRANT_TTL_MS, clientIp, recordAuthFailure } = d;
 
     const runTaskStep = async (agent, step) => {

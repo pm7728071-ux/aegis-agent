@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import path from 'path';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
+import createTaskLoop from './tasks.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -930,7 +931,7 @@ async function auditTransactionHandler(req, res) {
 app.post('/', auditTransactionHandler);
 app.post('/api/audit', auditTransactionHandler);
 
-require('./tasks.js')({ app, crypto, Task, Agent, Audit, Warrant, resolveAgent, withTimeout, requireAdmin, warrantSign, WARRANT_TTL_MS, clientIp, recordAuthFailure });
+createTaskLoop({ app, crypto, Task, Agent, Audit, Warrant, resolveAgent, withTimeout, requireAdmin, warrantSign, WARRANT_TTL_MS, clientIp, recordAuthFailure });
 
 // ==== v2.8.1: Aegis Guide — deterministic on-site assistant (no external LLM, free forever) ====
 const ASSISTANT_KB = [
