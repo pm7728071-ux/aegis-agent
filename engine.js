@@ -301,6 +301,8 @@ const Payment = mongoose.model('Payment', PaymentSchema);
 
 // 3f. PAYMENT WARRANTS — signed single-use authorizations binding verdicts to settlement.
 // A warrant is the ONLY thing the settlement executor accepts. Without one, no money moves.
+const TaskSchema = new mongoose.Schema({ taskId: { type: String, required: true, unique: true }, agentId: { type: String, required: true }, goal: { type: String, default: '' }, status: { type: String, enum: ['PLANNED', 'COMPLETED', 'NEEDS_APPROVAL', 'FAILED'], default: 'PLANNED' }, steps: { type: Array, default: [] }, digest: { type: String, default: '' }, createdAt: { type: Date, default: Date.now }, updatedAt: { type: Date, default: Date.now } });
+
 const WarrantSchema = new mongoose.Schema({
     warrantId: { type: String, required: true, unique: true },
     auditId: { type: String, required: true },
@@ -318,6 +320,7 @@ const WarrantSchema = new mongoose.Schema({
     settlementNote: { type: String },
 });
 const Warrant = mongoose.model('Warrant', WarrantSchema);
+const Task = mongoose.model('Task', TaskSchema);
 
 // The signing key is derived from the operator secret — no new secrets to manage.
 const warrantSigningKey = crypto.createHmac('sha256', process.env.ADMIN_API_KEY || 'aegis-local-dev').update('aegis-warrant-signing-v1').digest('hex');
@@ -926,6 +929,8 @@ async function auditTransactionHandler(req, res) {
 
 app.post('/', auditTransactionHandler);
 app.post('/api/audit', auditTransactionHandler);
+
+require('./tasks.js')({ app, crypto, Task, Agent, Audit, Warrant, resolveAgent, withTimeout, requireAdmin, warrantSign, WARRANT_TTL_MS, clientIp, recordAuthFailure });
 
 // ==== v2.8.1: Aegis Guide — deterministic on-site assistant (no external LLM, free forever) ====
 const ASSISTANT_KB = [

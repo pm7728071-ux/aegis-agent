@@ -130,3 +130,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow 
 - Aegis policy audit gate: transaction vetting against live policy limits, KES/USD rails
 - MongoDB persistence: metrics, policy, audit records
 - Boot-time gateway banner and status console
+
+## v2.9.0 — Execution loop (Days 15-30)
+
+- POST /api/tasks — plan -> act -> verify -> errors -> approval. Steps are validated at plan time (nothing executes on a malformed plan), each authorized step gets a signed single-use warrant with signature verification, failures stop the loop fail-closed, and over-policy steps halt the task as NEEDS_APPROVAL.
+- GET /api/tasks/:taskId — owner-scoped task status, digest, and per-step trail.
+- POST /api/tasks/:taskId/resume (operator) — human approval lifts the policy ceiling for the held task only and resumes remaining steps; double-resume refused.
+- tests/execution.js — 7-check execution suite (E1-E7).
+
