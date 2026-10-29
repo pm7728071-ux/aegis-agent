@@ -33,12 +33,19 @@ via `GET /api/agents/me`.
 | Endpoint | Auth | Purpose |
 |---|---|---|
 | `POST /api/agents/register` | none | Issue agent ID + API key (stored as SHA-256 hash) |
-| `POST /api/audit` | bearer (optional) | The audit gate — APPROVED / BLOCKED |
+| `POST /api/audit` | bearer (optional) | The financial transaction gate — APPROVED / BLOCKED |
+| `POST /api/guard/action` | registered agent bearer required | Deterministic action policy gate for connected agent applications; requires `X-Idempotency-Key`; unknown actions block; consequential actions return `PENDING_APPROVAL` |
 | `GET /api/agents/me` | bearer | Agent usage counters |
 | `GET /api/audit/recent` | none | Last 15 verdicts (immutable trail) |
 | `GET /api/network/stats` | none | Public telemetry |
 | `GET /api/config` | none | Live policy limits |
 | `POST /api/config`, `POST /api/intercept`, `POST /api/transaction/toll` | admin key | Operator rail (fail-closed) |
+
+## Connected-agent action guard
+
+This endpoint is covered by the repository's Node CI workflow and focused policy tests. A passing unit test validates the static action map only; staging checks are still required to verify registered-agent authentication, MongoDB persistence, index creation, and idempotent replay behavior.
+
+Registered agents can call `POST /api/guard/action` with `{ "action": "crm.external_commitment", "resourceRef": "opaque-reference" }` and a unique `X-Idempotency-Key`. The gate stores a durable verdict before responding. Unknown action names are blocked; supported consequential actions return `PENDING_APPROVAL`; only explicitly safe actions in the fixed policy are approved. The resource reference is stored as a hash, not raw CRM/customer data. This endpoint is a policy decision and audit layer; it does not itself send messages, book viewings, sign leases, or move money. The integrating application must enforce the verdict and keep its own human-approval workflow.
 
 ## Security model
 
