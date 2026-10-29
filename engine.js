@@ -203,9 +203,18 @@ app.get('*', (req, res, next) => {
 // 2. MONGOOSE CLOUD DATABASE PIPELINE
 const MONGO_URI = process.env.MONGO_URI;
 
+let actionGuardReady = false;
 mongoose.connect(MONGO_URI)
-    .then(() => console.log('🚀 [SECURE LAYER] Aegis Core Cluster Connected to MongoDB Cloud!'))
-    .catch(err => console.error('❌ Database Initialization Fault:', err.message));
+    .then(async () => {
+        // Ensure the idempotency uniqueness index exists before action decisions are served.
+        await ActionGuardAudit.init();
+        actionGuardReady = true;
+        console.log('🚀 [SECURE LAYER] Aegis Core Cluster Connected to MongoDB Cloud!');
+    })
+    .catch(err => {
+        actionGuardReady = false;
+        console.error('❌ Database Initialization Fault:', err.message);
+    });
 
 // 3. TELEMETRY STORAGE STRUCTURE (SCHEMA)
 const MetricSchema = new mongoose.Schema({
@@ -241,6 +250,19 @@ const AuditSchema = new mongoose.Schema({
 });
 
 const Audit = mongoose.model('Audit', AuditSchema);
+
+const ActionGuardAuditSchema = new mongoose.Schema({
+    agentId: { type: String, required: true, index: true },
+    idempotencyKey: { type: String, required: true },
+    action: { type: String, required: true },
+    resourceHash: { type: String, required: true },
+    decision: { type: String, enum: ['APPROVED', 'PENDING_APPROVAL', 'BLOCKED'], required: true },
+    reason: { type: String, required: true },
+    timestamp: { type: Date, default: Date.now },
+});
+ActionGuardAuditSchema.index({ agentId: 1, idempotencyKey: 1 }, { unique: true });
+const ActionGuardAudit = mongoose.model('ActionGuardAudit', ActionGuardAuditSchema);
+
 
 // Receipt signing: every decision gets a tamper-evident hash, recomputable by anyone.
 const receiptKey = crypto.createHmac('sha256', process.env.ADMIN_API_KEY || 'aegis-local-dev').update('aegis-receipt-v1').digest();
@@ -929,6 +951,81 @@ async function auditTransactionHandler(req, res) {
 }
 
 app.post('/', auditTransactionHandler);
+
+app.post('/api/guard/action', async (req, res) => {
+    if (!actionGuardReady || mongoose.connection.readyState !== 1) {
+        return res.status(503).json({ decision: 'BLOCKED', reason: 'Action guard persistence is not ready; denied by default', requestId: req.id });
+    }
+    const idempotencyKey = String(req.get('x-idempotency-key') || '').trim();
+    const action = String((req.body || {}).action || '').trim();
+    const resourceRef = String((req.body || {}).resourceRef || '').trim().slice(0, 240);
+    if (!/^[a-zA-Z0-9._:-]{8,120}$/.test(idempotencyKey)) {
+        return res.status(400).json({ decision: 'BLOCKED', reason: 'A valid X-Idempotency-Key (8-120 safe characters) is required', requestId: req.id });
+    }
+    if (!action || action.length > 80 || !resourceRef) {
+        return res.status(400).json({ decision: 'BLOCKED', reason: 'action and resourceRef are required', requestId: req.id });
+    }
+
+    let identity;
+    try {
+        identity = await withTimeout(resolveAgent(req), 3000);
+    } catch (error) {
+        return res.status(503).json({ decision: 'BLOCKED', reason: 'Identity service unavailable; action denied by default', requestId: req.id });
+    }
+    if (!identity || identity.mode !== 'live' || !identity.agent) {
+        return res.status(401).json({ decision: 'BLOCKED', reason: 'A registered active Aegis agent key is required', requestId: req.id });
+    }
+    if (identity.agent.status !== 'active') {
+        return res.status(403).json({ decision: 'BLOCKED', reason: 'Agent is quarantined or inactive', requestId: req.id });
+    }
+
+    const resourceHash = sha256(resourceRef);
+    try {
+        const previous = await withTimeout(ActionGuardAudit.findOne({ agentId: identity.agent.agentId, idempotencyKey }), 3000);
+        if (previous) {
+            if (previous.action !== action || previous.resourceHash !== resourceHash) {
+                return res.status(409).json({ decision: 'BLOCKED', reason: 'Idempotency key was already used for a different action or resource', requestId: req.id });
+            }
+            return res.status(previous.decision === 'BLOCKED' ? 403 : previous.decision === 'PENDING_APPROVAL' ? 202 : 200).json({
+                decision: previous.decision, reason: previous.reason, action: previous.action,
+                auditId: String(previous._id), idempotentReplay: true, requestId: req.id
+            });
+        }
+
+        const policyModule = await import('./action-guard-policy.cjs');
+        const decideAction = policyModule.decideAction || policyModule.default.decideAction;
+        const verdict = decideAction(action);
+        let record;
+        try {
+            record = await withTimeout(ActionGuardAudit.create({
+                agentId: identity.agent.agentId, idempotencyKey, action: verdict.action,
+                resourceHash, decision: verdict.decision, reason: verdict.reason
+            }), 3000);
+        } catch (error) {
+            // A duplicate can race with another identical request; return the committed verdict only.
+            if (error && error.code === 11000) {
+                const raced = await withTimeout(ActionGuardAudit.findOne({ agentId: identity.agent.agentId, idempotencyKey }), 3000);
+                if (raced && raced.action === action && raced.resourceHash === resourceHash) {
+                    return res.status(raced.decision === 'BLOCKED' ? 403 : raced.decision === 'PENDING_APPROVAL' ? 202 : 200).json({
+                        decision: raced.decision, reason: raced.reason, action: raced.action,
+                        auditId: String(raced._id), idempotentReplay: true, requestId: req.id
+                    });
+                }
+                return res.status(409).json({ decision: 'BLOCKED', reason: 'Conflicting idempotency key', requestId: req.id });
+            }
+            throw error;
+        }
+        const status = verdict.decision === 'BLOCKED' ? 403 : verdict.decision === 'PENDING_APPROVAL' ? 202 : 200;
+        return res.status(status).json({
+            decision: verdict.decision, reason: verdict.reason, action: verdict.action,
+            auditId: String(record._id), idempotentReplay: false, requestId: req.id
+        });
+    } catch (error) {
+        console.error('[action-guard] decision persistence failed:', error.message);
+        return res.status(503).json({ decision: 'BLOCKED', reason: 'Action decision could not be durably recorded; denied by default', requestId: req.id });
+    }
+});
+
 app.post('/api/audit', auditTransactionHandler);
 
 createTaskLoop({ app, crypto, Task, Agent, Audit, Warrant, resolveAgent, withTimeout, requireAdmin, warrantSign, WARRANT_TTL_MS, clientIp, recordAuthFailure });
