@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — CRM action guard
+- Added an authenticated `POST /api/guard/action` policy endpoint for connected agent applications.
+- Added a deterministic action allowlist, default-deny behavior for unknown actions, durable decision records, and idempotency-key conflict protection.
+- Consequential actions return `PENDING_APPROVAL`; the endpoint only records a policy verdict and never executes an external action.
+- Added a local policy unit-test command (`npm run test:action-guard`).
+
 ## v2.8.1 — The Aegis Guide (2026-10-24)
 - NEW: On-site assistant widget on every page — instant, deterministic answers about keys,
   integration, security, pricing, M-Pesa rails and all v2.8.0 features.
