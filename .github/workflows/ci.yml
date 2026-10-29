@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main, feature/crm-action-guard]
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Syntax checks
+        run: |
+          node --check engine.js
+          node --check action-guard-policy.cjs
+      - name: Action guard policy tests
+        run: npm run test:action-guard
