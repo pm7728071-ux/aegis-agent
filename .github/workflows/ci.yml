@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, feature/crm-action-guard]
+    branches: [main]
   pull_request:
     branches: [main]
 
@@ -20,6 +20,6 @@ jobs:
       - name: Syntax checks
         run: |
           node --check engine.js
-          node --check action-guard-policy.cjs
+          node --check tasks.js
       - name: Action guard policy tests
         run: npm run test:action-guard
