@@ -203,9 +203,18 @@ app.get('*', (req, res, next) => {
 // 2. MONGOOSE CLOUD DATABASE PIPELINE
 const MONGO_URI = process.env.MONGO_URI;
 
+let actionGuardReady = false;
 mongoose.connect(MONGO_URI)
-    .then(() => console.log('🚀 [SECURE LAYER] Aegis Core Cluster Connected to MongoDB Cloud!'))
-    .catch(err => console.error('❌ Database Initialization Fault:', err.message));
+    .then(async () => {
+        // Ensure the idempotency uniqueness index exists before action decisions are served.
+        await ActionGuardAudit.init();
+        actionGuardReady = true;
+        console.log('🚀 [SECURE LAYER] Aegis Core Cluster Connected to MongoDB Cloud!');
+    })
+    .catch(err => {
+        actionGuardReady = false;
+        console.error('❌ Database Initialization Fault:', err.message);
+    });
 
 // 3. TELEMETRY STORAGE STRUCTURE (SCHEMA)
 const MetricSchema = new mongoose.Schema({
@@ -944,6 +953,9 @@ async function auditTransactionHandler(req, res) {
 app.post('/', auditTransactionHandler);
 
 app.post('/api/guard/action', async (req, res) => {
+    if (!actionGuardReady || mongoose.connection.readyState !== 1) {
+        return res.status(503).json({ decision: 'BLOCKED', reason: 'Action guard persistence is not ready; denied by default', requestId: req.id });
+    }
     const idempotencyKey = String(req.get('x-idempotency-key') || '').trim();
     const action = String((req.body || {}).action || '').trim();
     const resourceRef = String((req.body || {}).resourceRef || '').trim().slice(0, 240);
