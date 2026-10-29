@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { decideAction } = require('../action-guard-policy.js');
+const { decideAction } = require('../action-guard-policy.cjs');
 
 assert.equal(decideAction('crm.property.hold').decision, 'APPROVED');
 assert.equal(decideAction('crm.external_commitment').decision, 'PENDING_APPROVAL');
