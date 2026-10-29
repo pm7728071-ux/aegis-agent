@@ -980,7 +980,7 @@ app.post('/api/guard/action', async (req, res) => {
             });
         }
 
-        const { decideAction } = await import('./action-guard-policy.js');
+        const { decideAction } = await import('./action-guard-policy.cjs');
         const verdict = decideAction(action);
         let record;
         try {
