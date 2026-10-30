@@ -28,7 +28,7 @@ Add these as GitHub Actions repository secrets (Settings → Secrets and variabl
 
 All three endpoint/model pairs must be distinct. Endpoints must use HTTPS, except localhost HTTP for local tests. The adapter uses a standard `/chat/completions`-style JSON request; check your provider's compatibility, model availability, quotas, data handling and current pricing before enabling it. A key is required for remote endpoints.
 
-The model workflow checks out `main` and runs only after a successful CI run on `main`, on its own schedule, or by manual dispatch. It does not run on pull-request code, so model secrets are not intentionally exposed to PR workflows. The model layer remains disabled until valid secrets are configured.
+The model workflow checks out `main` and runs only after a successful CI run on `main`, on its own schedule, or by manual dispatch. It prioritises the action policy, server routes, tests, dependency metadata and security documentation when selecting evidence; for the large server module it extracts bounded snippets around security-relevant routes and controls. It does not run on pull-request code, so model secrets are not intentionally exposed to PR workflows. The model layer remains disabled until valid secrets are configured.
 
 ## Evidence and privacy
 
