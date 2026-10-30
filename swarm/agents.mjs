@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { runIndependentModels } from "./model-agents.mjs";
 
 const exec = promisify(execFile);
 const CODE_EXTENSIONS = new Set([".js", ".cjs", ".mjs", ".ts", ".py"]);
@@ -135,7 +136,9 @@ export async function runAgents(root = process.cwd()) {
   const specialistResults = settled.map((result, index) => result.status === "fulfilled"
     ? result.value
     : [finding(names[index], "medium", "Agent execution error", "A specialist failed; inspect workflow logs for details.")]);
-  const all = specialistResults.flat();
+  const deterministicFindings = specialistResults.flat();
+  const modelReview = await runIndependentModels(sources);
+  const all = [...deterministicFindings, ...modelReview.findings];
   const counts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
   for (const item of all) counts[item.severity] = (counts[item.severity] || 0) + 1;
   const status = counts.critical || counts.high ? "ACTION_REQUIRED" : counts.medium ? "REVIEW_RECOMMENDED" : "MONITORING";
@@ -146,5 +149,5 @@ export async function runAgents(root = process.cwd()) {
     detail: `${all.length} findings collected. ${counts.high + counts.critical} high/critical, ${counts.medium} medium, ${counts.low} low. Human review is required before code or production changes.`,
     counts
   };
-  return { schemaVersion: 1, generatedAt: new Date().toISOString(), repository: process.env.GITHUB_REPOSITORY || "local", mode: "deterministic-cloud-audit", modelInference: false, trackedFiles: files.length, agents: [...all, commander] };
+  return { schemaVersion: 2, generatedAt: new Date().toISOString(), repository: process.env.GITHUB_REPOSITORY || "local", mode: modelReview.completed ? "hybrid-independent-models" : "deterministic-cloud-audit", modelInference: modelReview.completed > 0, modelReview: { configured: modelReview.configured, completed: modelReview.completed, agents: modelReview.results.map(({ role, status }) => ({ role, status })) }, trackedFiles: files.length, agents: [...all, commander] };
 }
