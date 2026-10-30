@@ -61,3 +61,39 @@ test("model configuration rejects insecure remote HTTP endpoints", () => {
   };
   assert.equal(modelConfigurations(env)[0].status, "unsafe_endpoint");
 });
+
+test("three distinct model roles run independently against a local mock and receive redacted evidence", async () => {
+  const received = [];
+  const server = createServer(async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    received.push(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify(modelReply));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const endpoint = `http://127.0.0.1:${server.address().port}/v1/chat/completions`;
+    const env = {};
+    for (const role of ["SENTINEL", "ARCHITECT", "ADVERSARY"]) {
+      env[`AEGIS_${role}_MODEL_URL`] = endpoint;
+      env[`AEGIS_${role}_MODEL_NAME`] = `test-${role.toLowerCase()}`;
+    }
+    const result = await runIndependentModels([
+      { file: "engine.js", content: "const password = secretvalue123;\nconst safe = true;" },
+      { file: ".env", content: "API_KEY=should-never-be-sent" }
+    ], env);
+    assert.equal(result.completed, 3);
+    assert.equal(result.findings.length, 3);
+    assert.equal(received.length, 3);
+    for (const request of received) {
+      const evidence = request.messages[1].content;
+      assert.match(evidence, /REDACTED/);
+      assert.doesNotMatch(evidence, /secretvalue123|should-never-be-sent/);
+      assert.equal(evidence.includes("FILE: .env"), false);
+    }
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+});
