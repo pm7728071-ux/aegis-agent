@@ -11,8 +11,8 @@ const ACTIONS = Object.freeze({
 });
 
 function decideAction(action) {
-  const key = String(action || '');
-  return ACTIONS[key] ? { action: key, ...ACTIONS[key] } : {
+  const key = typeof action === 'string' ? action : '';
+  return Object.prototype.hasOwnProperty.call(ACTIONS, key) ? { action: key, ...ACTIONS[key] } : {
     action: key.slice(0, 80), decision: 'BLOCKED', reason: 'Action is not in the explicit allowlist.'
   };
 }
