@@ -44,4 +44,4 @@ jobs:
             swarm-report.md
             swarm-report.json
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
