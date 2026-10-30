@@ -19,7 +19,7 @@ const app = express();
 // 1. GLOBAL MIDDLEWARE
 app.disable('x-powered-by'); // never fingerprint the stack
 app.use(cors({ methods: ['GET', 'POST'] })); // browsers may integrate; only sane verbs allowed
-app.use(express.json({ limit: '100kb' })); // reject oversized payloads
+app.use(express.json({ limit: '100kb', inflate: false })); // reject oversized and compressed payloads; avoids unsafe decompression
 
 // Standard security headers + per-request tracing (professional plumbing)
 app.use((req, res, next) => {
