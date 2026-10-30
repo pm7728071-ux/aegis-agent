@@ -10,7 +10,8 @@
     "test:swarm": "node --test swarm/*.test.mjs",
     "test": "npm run lint && npm run test:action-guard && npm run test:swarm && npm run test:security-deps",
     "test:security-deps": "node tests/security-dependencies.test.cjs",
-    "lint": "node scripts/lint.mjs"
+    "lint": "node scripts/lint.mjs",
+    "clean": "node scripts/clean-generated.mjs"
   },
   "dependencies": {
     "axios": "^1.7.9",
