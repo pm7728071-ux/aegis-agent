@@ -54,12 +54,12 @@ async function sentinel(root, sources) {
     const { stdout } = await exec("npm", ["audit", "--omit=dev", "--json"], { cwd: root, timeout: 90000, maxBuffer: 5 * 1024 * 1024 });
     const audit = JSON.parse(stdout);
     const v = audit.metadata?.vulnerabilities;
-    if (v && (v.high || v.critical)) findings.push(finding("SENTINEL", "high", "Production dependency vulnerabilities", `npm audit reports ${v.critical || 0} critical and ${v.high || 0} high production dependency vulnerabilities.`));
+    if (v && (v.high || v.critical)) { const affected = Object.entries(audit.vulnerabilities || {}).filter(([, item]) => ["high", "critical"].includes(item.severity)).map(([name]) => name).slice(0, 8); findings.push(finding("SENTINEL", "high", "Production dependency vulnerabilities", `npm audit reports ${v.critical || 0} critical and ${v.high || 0} high production dependency vulnerabilities. Affected packages: ${affected.join(", ") || "inspect npm audit details"}.`)); }
   } catch (error) {
     try {
       const audit = JSON.parse(String(error.stdout || ""));
       const v = audit.metadata?.vulnerabilities;
-      if (v && (v.high || v.critical)) findings.push(finding("SENTINEL", "high", "Production dependency vulnerabilities", `npm audit reports ${v.critical || 0} critical and ${v.high || 0} high production dependency vulnerabilities.`));
+      if (v && (v.high || v.critical)) { const affected = Object.entries(audit.vulnerabilities || {}).filter(([, item]) => ["high", "critical"].includes(item.severity)).map(([name]) => name).slice(0, 8); findings.push(finding("SENTINEL", "high", "Production dependency vulnerabilities", `npm audit reports ${v.critical || 0} critical and ${v.high || 0} high production dependency vulnerabilities. Affected packages: ${affected.join(", ") || "inspect npm audit details"}.`)); }
       else findings.push(finding("SENTINEL", "info", "Dependency audit incomplete", "npm audit did not complete cleanly; check runner logs and network availability."));
     } catch {
       findings.push(finding("SENTINEL", "info", "Dependency audit unavailable", "npm audit could not return a parseable report; check runner logs and network availability."));
