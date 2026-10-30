@@ -1,0 +1,58 @@
+name: AEGIS Independent Model Review
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  schedule:
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aegis-independent-model-review
+  cancel-in-progress: true
+
+jobs:
+  model-review:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AEGIS_SENTINEL_MODEL_URL: ${{ secrets.AEGIS_SENTINEL_MODEL_URL }}
+      AEGIS_SENTINEL_MODEL_NAME: ${{ secrets.AEGIS_SENTINEL_MODEL_NAME }}
+      AEGIS_SENTINEL_API_KEY: ${{ secrets.AEGIS_SENTINEL_API_KEY }}
+      AEGIS_ARCHITECT_MODEL_URL: ${{ secrets.AEGIS_ARCHITECT_MODEL_URL }}
+      AEGIS_ARCHITECT_MODEL_NAME: ${{ secrets.AEGIS_ARCHITECT_MODEL_NAME }}
+      AEGIS_ARCHITECT_API_KEY: ${{ secrets.AEGIS_ARCHITECT_API_KEY }}
+      AEGIS_ADVERSARY_MODEL_URL: ${{ secrets.AEGIS_ADVERSARY_MODEL_URL }}
+      AEGIS_ADVERSARY_MODEL_NAME: ${{ secrets.AEGIS_ADVERSARY_MODEL_NAME }}
+      AEGIS_ADVERSARY_API_KEY: ${{ secrets.AEGIS_ADVERSARY_API_KEY }}
+    steps:
+      - name: Checkout trusted main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run independent model reviews
+        run: node swarm/run.mjs
+      - name: Publish model review report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegis-independent-model-review-${{ github.run_number }}
+          path: |
+            swarm-report.md
+            swarm-report.json
+          if-no-files-found: ignore
+          retention-days: 3

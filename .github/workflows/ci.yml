@@ -17,9 +17,15 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - name: Syntax checks
-        run: |
-          node --check engine.js
-          node --check tasks.js
+      - name: Lint tracked JavaScript
+        run: npm run lint
+      - name: Verify security disclosure policy
+        run: test -s SECURITY.md
       - name: Action guard policy tests
         run: npm run test:action-guard
+      - name: Dependency vulnerability gate
+        run: npm audit --omit=dev --audit-level=high
+      - name: Security dependency regression tests
+        run: npm run test:security-deps
+      - name: Swarm unit tests
+        run: npm run test:swarm
