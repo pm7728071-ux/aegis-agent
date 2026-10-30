@@ -149,5 +149,5 @@ export async function runAgents(root = process.cwd()) {
     detail: `${all.length} findings collected. ${counts.high + counts.critical} high/critical, ${counts.medium} medium, ${counts.low} low. Human review is required before code or production changes.`,
     counts
   };
-  return { schemaVersion: 2, generatedAt: new Date().toISOString(), repository: process.env.GITHUB_REPOSITORY || "local", mode: modelReview.completed ? "hybrid-independent-models" : "deterministic-cloud-audit", modelInference: modelReview.completed > 0, modelReview: { configured: modelReview.configured, completed: modelReview.completed, agents: modelReview.results.map(({ role, status }) => ({ role, status })) }, trackedFiles: files.length, agents: [...all, commander] };
+  return { schemaVersion: 2, generatedAt: new Date().toISOString(), repository: process.env.GITHUB_REPOSITORY || "local", mode: modelReview.completed ? "hybrid-independent-models" : "deterministic-cloud-audit", modelInference: modelReview.completed > 0, modelReview: { configured: modelReview.configured, completed: modelReview.completed, agents: modelReview.results.map(({ role, status, summary }) => ({ role, status, ...(summary ? { summary } : {}) })) }, trackedFiles: files.length, agents: [...all, commander] };
 }
