@@ -37,11 +37,11 @@ import { randomUUID } from "node:crypto";
 const AEGIS_URL = "https://aegis-agent-4u79.onrender.com";
 const AEGIS_AGENT_KEY = process.env.AEGIS_AGENT_KEY;
 
-export async function requestActionPermission(action, resourceRef) {
+export async function requestActionPermission(action, resourceRef, idempotencyKey) {
   if (!AEGIS_AGENT_KEY) throw new Error("AEGIS_AGENT_KEY is not configured");
-
-  // Create once per logical operation and reuse this key for retries.
-  const idempotencyKey = randomUUID();
+  if (typeof idempotencyKey !== "string" || !idempotencyKey) {
+    throw new Error("A stable idempotency key is required");
+  }
 
   let response;
   try {
@@ -74,7 +74,7 @@ export async function requestActionPermission(action, resourceRef) {
 }
 ```
 
-Only call your own action executor after `requestActionPermission` returns successfully. A pending approval is not an approval. The operator approval process must be completed separately before the application proceeds.
+Create the key in the caller once for each logical operation, for example `const key = randomUUID()`, and pass that same key on every retry. Do not generate a new key for a retry. Only call your own action executor after `requestActionPermission` returns successfully. A pending approval is not an approval. The operator approval process must be completed separately before the application proceeds.
 
 ## 4. Verdict reference
 
