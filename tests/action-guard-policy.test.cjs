@@ -25,3 +25,35 @@ for (const [action, policy] of Object.entries(ACTIONS)) {
   assert.ok(['APPROVED', 'PENDING_APPROVAL'].includes(policy.decision), `${action} must have an explicit safe verdict`);
 }
 console.log('Action guard policy tests passed.');
+
+const { validateActionRequest } = require('../action-guard-policy.cjs');
+
+const validRequest = {
+  idempotencyKey: 'request-123',
+  action: 'crm.property.hold',
+  resourceRef: 'property-456'
+};
+assert.deepEqual(validateActionRequest(validRequest), {
+  ok: true,
+  value: validRequest
+});
+for (const invalid of [
+  { ...validRequest, action: { toString: () => 'crm.property.hold' } },
+  { ...validRequest, action: ['crm.property.hold'] },
+  { ...validRequest, action: '' },
+  { ...validRequest, action: 'x'.repeat(81) },
+  { ...validRequest, resourceRef: { value: 'property-456' } },
+  { ...validRequest, resourceRef: '' },
+  { ...validRequest, resourceRef: 'x'.repeat(241) },
+  { ...validRequest, idempotencyKey: 12345678 },
+  { ...validRequest, idempotencyKey: 'short' },
+  { ...validRequest, idempotencyKey: 'bad key 123' }
+]) {
+  assert.equal(validateActionRequest(invalid).ok, false, 'malformed values must be rejected without coercion');
+}
+assert.equal(validateActionRequest({
+  ...validRequest,
+  idempotencyKey: '  request-123  ',
+  action: ' crm.property.hold ',
+  resourceRef: ' property-456 '
+}).value.action, 'crm.property.hold');
