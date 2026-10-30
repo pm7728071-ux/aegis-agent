@@ -49,6 +49,8 @@ Registered agents can call `POST /api/guard/action` with `{ "action": "crm.exter
 
 A copy-paste Node.js integration walkthrough, including fail-closed client handling and verdict meanings, is available in [docs/INTEGRATION.md](docs/INTEGRATION.md).
 
+To remove only generated local audit reports and Python bytecode caches, run `npm run clean`. This does not remove source files, dependencies, environment files, or user data.
+
 ## Security model
 
 - **Fail-closed:** any database or policy fault → verdict is BLOCKED, fast.
