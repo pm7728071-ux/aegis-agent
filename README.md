@@ -83,3 +83,8 @@ node engine.js
 
 Build-free by design: the frontend is static `index.html` + `landing.js` +
 `console.html` + `console.js`, served by the same Express process.
+
+
+## Independent AI reasoning layer
+
+An optional three-role model review (security, architecture, adversarial review) is available through separate OpenAI-compatible HTTPS endpoints. Each role requires a distinct endpoint/model pair and its own GitHub Actions secrets. It is disabled until configured, runs from trusted `main` code, and cannot execute actions or override the deterministic policy gate. See [docs/SWARM.md](docs/SWARM.md) for configuration, evidence redaction and safety limits.
