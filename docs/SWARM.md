@@ -1,42 +1,59 @@
 # AEGIS Swarm Core
 
-## What it is
+## Deterministic and independent model layers
 
-AEGIS Swarm Core is a zero-inference-cost, cloud-hosted repository audit workflow. GitHub Actions runs it on pushes to `main`, pull requests targeting `main`, manual dispatch, and a six-hour schedule. It uses the standard GitHub-hosted runner and the repository's existing Node toolchain; it does not require your computer to stay online.
+The deterministic specialists remain the baseline and run without model credentials. An optional independent reasoning layer adds three separate model roles:
 
-## Specialist roles
+- **MODEL_SENTINEL** — independent security review.
+- **MODEL_ARCHITECT** — reliability, architecture and test-gap review.
+- **MODEL_ADVERSARY** — defensive abuse-case and bypass review.
 
-- **SENTINEL** — high-confidence exposed-secret pattern checks, dynamic-code-execution indicators, and production dependency audit.
-- **FORGE** — package-script and maintainability checks.
-- **ATLAS** — JavaScript syntax checks and the existing action-guard policy tests.
-- **NEXUS** — repository structure and large-module indicators.
-- **ORACLE** — project documentation completeness checks.
-- **COMMANDER** — aggregates findings and assigns an overall triage status.
+Each role calls a separately configured OpenAI-compatible chat-completions endpoint. A role is considered independent only when its endpoint + model identity is unique. Reusing one model identity for multiple roles is rejected as a duplicate configuration.
 
-## Cost and model honesty
+## Configure model providers
 
-Version 1 makes no external LLM/API calls and has no paid model dependency. These are deterministic specialist automation agents, not six independent frontier-language-model instances. This is intentional: it gives the public repository a usable, repeatable baseline without API keys or recurring inference charges. It does not claim to perform live competitor research or understand arbitrary code like a senior engineer.
+Add these as GitHub Actions repository secrets (Settings → Secrets and variables → Actions), never as committed files:
 
-A later model-backed version must use a separately evaluated inference provider or self-hosted compute. Always verify its current pricing, usage limits, data handling and availability before enabling it; do not put API keys in repository files.
+| Secret | Purpose |
+|---|---|
+| `AEGIS_SENTINEL_MODEL_URL` | Full HTTPS chat-completions endpoint |
+| `AEGIS_SENTINEL_MODEL_NAME` | Model identifier for security review |
+| `AEGIS_SENTINEL_API_KEY` | Provider key |
+| `AEGIS_ARCHITECT_MODEL_URL` | Full HTTPS chat-completions endpoint |
+| `AEGIS_ARCHITECT_MODEL_NAME` | Different model identifier |
+| `AEGIS_ARCHITECT_API_KEY` | Provider key |
+| `AEGIS_ADVERSARY_MODEL_URL` | Full HTTPS chat-completions endpoint |
+| `AEGIS_ADVERSARY_MODEL_NAME` | Different model identifier |
+| `AEGIS_ADVERSARY_API_KEY` | Provider key |
 
-## Reports
+All three endpoint/model pairs must be distinct. Endpoints must use HTTPS, except localhost HTTP for local tests. The adapter uses a standard `/chat/completions`-style JSON request; check your provider's compatibility, model availability, quotas, data handling and current pricing before enabling it. A key is required for remote endpoints.
 
-Each run uploads `swarm-report.md` and `swarm-report.json` as a GitHub Actions artifact for 14 days. Open the repository's **Actions → AEGIS Swarm → latest run → Artifacts** to inspect the report.
+The model workflow checks out `main` and runs only after a successful CI run on `main`, on its own schedule, or by manual dispatch. It does not run on pull-request code, so model secrets are not intentionally exposed to PR workflows. The model layer remains disabled until valid secrets are configured.
+
+## Evidence and privacy
+
+- Only a bounded selection of tracked text/code files is sent (maximum 30,000 characters).
+- Common private-key, token, bearer-token, password/API-key assignment and MongoDB URI patterns are redacted before transmission.
+- `.env` files and dependency lockfiles are excluded.
+- Redaction is best-effort, not a guarantee. Use only providers whose data-handling terms you have reviewed, and do not point this at repositories containing sensitive code or customer data without approval.
+- Provider responses are untrusted suggestions. They are schema-checked and size-limited before entering the report.
 
 ## Safety boundaries
 
-- Workflow permissions are read-only for repository contents.
-- Checkout credentials are not persisted.
-- No production secrets or customer database are provided to agents.
-- Agents do not write source files, commit, push, open/merge PRs, or deploy.
-- Findings are triage signals and require human verification.
-- The workflow runs on GitHub-hosted ephemeral runners; it is scheduled monitoring, not a continuously resident process. Scheduled starts may be delayed by GitHub.
-- A green run does not prove AEGIS is secure. The scanner has false negatives and false positives.
+- Model agents cannot execute tools, run shell commands, change files, call AEGIS production endpoints, approve transactions, write databases, commit, merge, or deploy.
+- Model findings never override the deterministic policy gate.
+- A model failure produces a visible review-failed finding; it does not fail open or authorise an action.
+- A model's claim is not proof. Verify important findings with tests and human review.
+- GitHub Actions uses ephemeral runners. This is scheduled cloud review, not a permanently resident process.
 
-## Local run
+## Reports and local run
+
+The workflow uploads Markdown and JSON reports as artifacts for 14 days. Deterministic tests do not require API keys:
 
 ```bash
 npm ci
-npm run test:swarm
+npm test
 node swarm/run.mjs
 ```
+
+Without all three distinct model configurations, the report explicitly identifies deterministic-only or partial model operation.
