@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node engine.js",
     "start": "node engine.js",
-    "test:action-guard": "node tests/action-guard-policy.test.cjs"
+    "test:action-guard": "node tests/action-guard-policy.test.cjs",
+    "test:swarm": "node --test swarm/*.test.mjs"
   },
   "dependencies": {
     "axios": "^1.7.9",

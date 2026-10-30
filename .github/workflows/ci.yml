@@ -23,3 +23,5 @@ jobs:
           node --check tasks.js
       - name: Action guard policy tests
         run: npm run test:action-guard
+      - name: Swarm unit tests
+        run: npm run test:swarm

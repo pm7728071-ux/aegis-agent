@@ -1,0 +1,47 @@
+name: AEGIS Swarm
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 */6 * * *"
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aegis-swarm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  swarm-audit:
+    name: Run specialist agents
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run AEGIS specialist swarm
+        run: node swarm/run.mjs
+      - name: Publish swarm report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegis-swarm-report-${{ github.run_number }}
+          path: |
+            swarm-report.md
+            swarm-report.json
+          if-no-files-found: ignore
+          retention-days: 14
