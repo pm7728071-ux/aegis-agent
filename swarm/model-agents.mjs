@@ -33,9 +33,9 @@ function evidenceFor(sources) {
   const priority = ["action-guard-policy.cjs", "engine.js", "tests/action-guard-policy.test.cjs", "package.json", "SECURITY.md", ".github/workflows/ci.yml", "README.md"];
   const rank = new Map(priority.map((file, index) => [file, index]));
   const allowed = sources
-    .filter(row => !/(^|\\/)\\.env(?:\\.|$)/i.test(row.file))
-    .filter(row => !/(?:lock|\\.min)\\.(?:json|js)$/i.test(row.file))
-    .filter(row => /\\.(?:js|cjs|mjs|ts|py|json|ya?ml|md)$/i.test(row.file))
+    .filter(row => !/(^|\/)\.env(?:\.|$)/i.test(row.file))
+    .filter(row => !/(?:lock|\.min)\.(?:json|js)$/i.test(row.file))
+    .filter(row => /\.(?:js|cjs|mjs|ts|py|json|ya?ml|md)$/i.test(row.file))
     .sort((a, b) => (rank.get(a.file) ?? 99) - (rank.get(b.file) ?? 99))
     .slice(0, 24);
   let remaining = MAX_EVIDENCE_CHARS;
@@ -44,25 +44,25 @@ function evidenceFor(sources) {
     if (remaining <= 0) break;
     let selected = row.content;
     if (row.file === "engine.js" && row.content.length > 5000) {
-      const lines = row.content.split("\\n");
+      const lines = row.content.split("\n");
       const matches = [];
       for (let index = 0; index < lines.length; index++) {
-        if (/guard\\/action|idempot|authorization|authenticate|audit|payment|rateLimit|express\\.json|mongoose|transaction/i.test(lines[index])) {
+        if (/guard\/action|idempot|authorization|authenticate|audit|payment|rateLimit|express\.json|mongoose|transaction/i.test(lines[index])) {
           for (let offset = Math.max(0, index - 2); offset <= Math.min(lines.length - 1, index + 2); offset++) matches.push(offset);
         }
       }
       const unique = [...new Set(matches)].sort((a, b) => a - b);
       selected = unique.length
-        ? unique.map(index => (index + 1) + ": " + lines[index]).join("\\n").slice(0, 5000)
+        ? unique.map(index => (index + 1) + ": " + lines[index]).join("\n").slice(0, 5000)
         : row.content.slice(0, 5000);
     }
     const body = redact(selected).slice(0, Math.min(5000, remaining));
     if (!body) continue;
-    const part = "FILE: " + row.file + "\\n" + body;
+    const part = "FILE: " + row.file + "\n" + body;
     parts.push(part);
     remaining -= part.length;
   }
-  return parts.join("\\n\\n---\\n\\n") || "No eligible source evidence was available.";
+  return parts.join("\n\n---\n\n") || "No eligible source evidence was available.";
 }
 function configFor(role, env = process.env) {
   const prefix = "AEGIS_" + role;
