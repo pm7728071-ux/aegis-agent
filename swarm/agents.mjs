@@ -76,6 +76,10 @@ async function forge(_root, _files, sources) {
     try {
       const pkg = JSON.parse(packageFile.content);
       if (!pkg.scripts?.lint) findings.push(finding("FORGE", "low", "No lint script configured", "Consider adding a repeatable lint command for consistent code-quality checks."));
+    else {
+      try { await exec("npm", ["run", "lint"], { cwd: _root, timeout: 60000, maxBuffer: 2 * 1024 * 1024 }); }
+      catch { findings.push(finding("FORGE", "medium", "Repository lint failed", "The configured lint command failed; inspect workflow logs.")); }
+    }
       if (!pkg.scripts?.test) findings.push(finding("FORGE", "low", "No standard test script configured", "The project has focused test commands; consider a single npm test entry point."));
     } catch { findings.push(finding("FORGE", "medium", "package.json could not be parsed", "Review package metadata and scripts.", "package.json")); }
   }
