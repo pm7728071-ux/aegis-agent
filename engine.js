@@ -956,15 +956,17 @@ app.post('/api/guard/action', async (req, res) => {
     if (!actionGuardReady || mongoose.connection.readyState !== 1) {
         return res.status(503).json({ decision: 'BLOCKED', reason: 'Action guard persistence is not ready; denied by default', requestId: req.id });
     }
-    const idempotencyKey = String(req.get('x-idempotency-key') || '').trim();
-    const action = String((req.body || {}).action || '').trim();
-    const resourceRef = String((req.body || {}).resourceRef || '').trim().slice(0, 240);
-    if (!/^[a-zA-Z0-9._:-]{8,120}$/.test(idempotencyKey)) {
-        return res.status(400).json({ decision: 'BLOCKED', reason: 'A valid X-Idempotency-Key (8-120 safe characters) is required', requestId: req.id });
+    const policyModule = await import('./action-guard-policy.cjs');
+    const policy = policyModule.default || policyModule;
+    const validation = policy.validateActionRequest({
+        idempotencyKey: req.get('x-idempotency-key'),
+        action: (req.body || {}).action,
+        resourceRef: (req.body || {}).resourceRef,
+    });
+    if (!validation.ok) {
+        return res.status(400).json({ decision: 'BLOCKED', reason: validation.reason, requestId: req.id });
     }
-    if (!action || action.length > 80 || !resourceRef) {
-        return res.status(400).json({ decision: 'BLOCKED', reason: 'action and resourceRef are required', requestId: req.id });
-    }
+    const { idempotencyKey, action, resourceRef } = validation.value;
 
     let identity;
     try {
@@ -992,8 +994,7 @@ app.post('/api/guard/action', async (req, res) => {
             });
         }
 
-        const policyModule = await import('./action-guard-policy.cjs');
-        const decideAction = policyModule.decideAction || policyModule.default.decideAction;
+        const decideAction = policy.decideAction;
         const verdict = decideAction(action);
         let record;
         try {
