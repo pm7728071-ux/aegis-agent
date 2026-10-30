@@ -19,6 +19,8 @@ jobs:
       - run: npm ci
       - name: Lint tracked JavaScript
         run: npm run lint
+      - name: Verify security disclosure policy
+        run: test -s SECURITY.md
       - name: Action guard policy tests
         run: npm run test:action-guard
       - name: Dependency vulnerability gate
